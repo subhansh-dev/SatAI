@@ -1,30 +1,51 @@
 const API = '';
 
-(function initBoot() {
+(async function initBoot() {
     const boot = document.getElementById('boot');
     const ring = document.getElementById('bootRing');
     const percent = document.getElementById('bootPercent');
     const bootName = document.getElementById('bootName');
     const bootSub = document.getElementById('bootSub');
+    const wakeMsg = document.getElementById('boot-wake');
     if (!boot || !ring) return;
 
     const circumference = 226.2;
-    let progress = 0;
 
+    async function pingBackend() {
+        try {
+            const r = await fetch('/api/health', { method: 'GET' });
+            if (r.ok) return true;
+        } catch (e) {}
+        return false;
+    }
+
+    let progress = 0;
     function tickBoot() {
-        if (progress >= 100) {
-            bootName.classList.add('show');
-            setTimeout(() => bootSub.classList.add('show'), 300);
-            setTimeout(() => boot.classList.add('done'), 1400);
-            return;
-        }
-        progress += Math.random() * 4 + 0.5;
-        if (progress > 100) progress = 100;
+        progress += Math.random() * 3 + 0.5;
+        if (progress > 90) progress = 90;
         ring.style.strokeDashoffset = circumference * (1 - progress / 100);
         percent.textContent = Math.floor(progress);
-        setTimeout(tickBoot, 40 + Math.random() * 30);
     }
-    tickBoot();
+
+    bootName.classList.add('show');
+    setTimeout(() => bootSub.classList.add('show'), 300);
+
+    let awake = false;
+    let attempts = 0;
+    while (!awake) {
+        attempts++;
+        tickBoot();
+        awake = await pingBackend();
+        if (!awake) {
+            if (wakeMsg) wakeMsg.style.display = 'block';
+            await new Promise(r => setTimeout(r, 2000));
+        }
+    }
+
+    ring.style.strokeDashoffset = 0;
+    percent.textContent = '100';
+    if (wakeMsg) wakeMsg.style.display = 'none';
+    setTimeout(() => boot.classList.add('done'), 600);
 })();
 
 (function initCursor() {
