@@ -1,0 +1,70 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "chronovisor"
+version = "0.3.0"
+description = "Temporal Archaeology Engine - AI-powered archaeological analysis using satellite data, environmental sensors, and Gemini AI"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [{name = "Chronovisor Team"}]
+keywords = ["archaeology", "satellite", "remote-sensing", "ai", "temporal"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: GIS",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+]
+
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "httpx>=0.27.0",
+    "numpy>=1.26.0",
+    "scipy>=1.13.0",
+    "Pillow>=10.4.0",
+    "matplotlib>=3.9.0",
+    "pydantic>=2.8.0",
+    "python-multipart>=0.0.9",
+    "aiofiles>=24.1.0",
+    "jinja2>=3.1.4",
+    "earthengine-api>=0.1.400",
+    "scikit-learn>=1.5.0",
+    "opencv-python-headless>=4.10.0",
+    "requests>=2.32.0",
+    "websockets>=12.0",
+    "python-dateutil>=2.9.0",
+    "google-generativeai>=0.8.0",
+    "cachetools>=5.5.0",
+]
+
+[project.optional-dependencies]
+full = [
+    "geemap>=0.34.0",
+    "soundfile>=0.12.1",
+    "librosa>=0.10.2",
+    "apscheduler>=3.10.4",
+    "markdown>=3.7",
+]
+dev = [
+    "pytest>=8.0",
+    "httpx>=0.27.0",
+]
+
+[project.scripts]
+chrono = "backend.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/chronovisor/chronovisor"
+Documentation = "https://github.com/chronovisor/chronovisor#readme"
+Repository = "https://github.com/chronovisor/chronovisor"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["backend*"]
+
+[tool.setuptools.package-data]
+backend = ["**/*.html", "**/*.css", "**/*.js"]

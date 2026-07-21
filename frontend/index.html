@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CHRONOVISOR</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js"></script>
+    <!-- SVG Glass Distortion Filter -->
+    <svg style="position:absolute;width:0;height:0" aria-hidden="true">
+        <defs>
+            <filter id="glass-distortion" x="0%" y="0%" width="100%" height="100%" filterUnits="objectBoundingBox">
+                <feTurbulence type="fractalNoise" baseFrequency="0.001 0.005" numOctaves="1" seed="17" result="turbulence"/>
+                <feGaussianBlur in="turbulence" stdDeviation="3" result="softMap"/>
+                <feDisplacementMap in="SourceGraphic" in2="softMap" scale="100" xChannelSelector="R" yChannelSelector="G"/>
+            </filter>
+        </defs>
+    </svg>
+</head>
+<body>
+    <!-- Boot Preloader -->
+    <div id="boot">
+        <div class="boot-ring">
+            <svg viewBox="0 0 80 80">
+                <circle class="ring-bg" cx="40" cy="40" r="36"/>
+                <circle class="ring-fill" id="bootRing" cx="40" cy="40" r="36"/>
+            </svg>
+            <div class="boot-percent" id="bootPercent">0</div>
+        </div>
+        <div class="boot-name" id="bootName">CHRONOVISOR</div>
+        <div class="boot-sub" id="bootSub">Temporal Archaeology Engine</div>
+    </div>
+
+    <!-- Custom Cursor -->
+    <div class="cursor-dot" id="cursorDot"></div>
+    <div class="cursor-ring" id="cursorRing"></div>
+
+    <!-- Scroll Progress -->
+    <div class="scroll-progress"><div class="scroll-progress-bar" id="scrollProgress"></div></div>
+
+    <!-- Aurora Background Glow -->
+    <div class="aurora-glow"></div>
+
+    <!-- Ambient Canvas -->
+    <canvas id="ambient-canvas"></canvas>
+
+    <!-- Header -->
+    <header id="header">
+        <div class="header-left">
+            <div class="logo-mark">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="10"/>
+                    <path d="M12 6v6l4 2"/>
+                </svg>
+            </div>
+            <div class="logo-text">
+                <h1>CHRONOVISOR</h1>
+                <span class="logo-sub">Temporal Archaeology Engine</span>
+            </div>
+        </div>
+        <nav id="nav">
+            <button class="nav-btn active" data-tab="map">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>
+                <span>Map</span>
+            </button>
+            <button class="nav-btn" data-tab="analysis">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-9-9"/><path d="M21 3v9h-9"/></svg>
+                <span>Analysis</span>
+            </button>
+            <button class="nav-btn" data-tab="terrain">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 22L12 2l10 20H2z"/></svg>
+                <span>Terrain</span>
+            </button>
+            <button class="nav-btn" data-tab="signals">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12h4l3-9 4 18 3-9h6"/></svg>
+                <span>Signals</span>
+            </button>
+            <button class="nav-btn" data-tab="ai">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a4 4 0 0 1 4 4v2a4 4 0 0 1-8 0V6a4 4 0 0 1 4-4z"/><path d="M6 10v2c0 3.3 2.7 6 6 6s6-2.7 6-6v-2"/><line x1="12" y1="18" x2="12" y2="22"/></svg>
+                <span>AI Analyst</span>
+            </button>
+            <button class="nav-btn" data-tab="history">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                <span>History</span>
+            </button>
+        </nav>
+        <div class="header-right">
+            <div class="status-indicator" id="status-indicator">
+                <span class="status-dot"></span>
+                <span class="status-text">ONLINE</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Map Tab -->
+    <div id="tab-map" class="tab-content active">
+        <div class="map-layout">
+            <div id="map"></div>
+            <aside class="sidebar glass-panel">
+                <div class="sidebar-section">
+                    <div class="section-label">LOCATION QUERY</div>
+                    <div class="input-field">
+                        <label>PLACE NAME</label>
+                        <input type="text" id="input-place" placeholder="e.g. Rome, Angkor Wat, Machu Picchu" onkeydown="if(event.key==='Enter')searchPlace()">
+                    </div>
+                    <button class="btn-secondary" onclick="searchPlace()" style="margin-top:8px;">Search</button>
+                </div>
+                <div class="sidebar-section">
+                    <div class="section-label">TARGET COORDINATES</div>
+                    <div class="input-row">
+                        <div class="input-field">
+                            <label>LAT</label>
+                            <input type="number" id="input-lat" step="0.0001" value="28.6139">
+                        </div>
+                        <div class="input-field">
+                            <label>LON</label>
+                            <input type="number" id="input-lon" step="0.0001" value="77.2090">
+                        </div>
+                    </div>
+                    <div class="input-row">
+                        <div class="input-field">
+                            <label>RADIUS (m)</label>
+                            <input type="number" id="input-radius" value="500" step="100">
+                        </div>
+                        <div class="input-field">
+                            <label>FROM</label>
+                            <input type="date" id="input-start" value="2017-01-01">
+                        </div>
+                    </div>
+                    <div class="input-field">
+                        <label>SATELLITE</label>
+                        <select id="input-source">
+                            <option value="sentinel2">Sentinel-2 (Optical, 10m)</option>
+                            <option value="landsat8">Landsat 8 (Thermal, 30m)</option>
+                            <option value="sentinel1">Sentinel-1 SAR (Radar, 10m)</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="sidebar-section">
+                    <button class="btn-scan" onclick="runMegaScan()">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10"/></svg>
+                        FULL SPECTRUM SCAN
+                    </button>
+                    <button class="btn-scan" onclick="runFullScan()">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                        SATELLITE IMAGERY
+                    </button>
+                    <button class="btn-secondary" onclick="runGeminiAnalysis()">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a4 4 0 0 1 4 4v2a4 4 0 0 1-8 0V6a4 4 0 0 1 4-4z"/></svg>
+                        AI Analysis
+                    </button>
+                    <button class="btn-secondary" onclick="runEnvironmentalScan()">Soil + Geology</button>
+                    <button class="btn-secondary" onclick="runHistoricalWeb()">Web Archives</button>
+                    <button class="btn-secondary" onclick="runSatelliteAnalysis()">Satellite Only</button>
+                    <button class="btn-secondary" onclick="runAnomalyDetection()">Anomaly Detection</button>
+                    <button class="btn-secondary" onclick="exportReport()">Export HTML Report</button>
+                    <button class="btn-secondary" onclick="exportJSON()">Export JSON</button>
+                    <button class="btn-secondary" onclick="exportCSV()">Export CSV</button>
+                </div>
+                <div class="sidebar-section">
+                    <div id="scan-status" class="scan-status"></div>
+                </div>
+            </aside>
+        </div>
+    </div>
+
+    <!-- Analysis Tab -->
+    <div id="tab-analysis" class="tab-content">
+        <div class="analysis-layout">
+            <div class="panel glass-panel" id="panel-summary">
+                <div class="panel-header">
+                    <span class="panel-label">SCAN SUMMARY</span>
+                    <span class="panel-badge" id="confidence-badge">--</span>
+                </div>
+                <div id="summary-content" class="panel-body">
+                    <div class="empty-state">[AWAITING SCAN DATA]</div>
+                </div>
+            </div>
+            <div class="panel glass-panel panel-wide" id="panel-timeseries">
+                <div class="panel-header">
+                    <span class="panel-label">VEGETATION & MOISTURE INDEX</span>
+                </div>
+                <div id="timeseries-chart" style="width:100%;height:300px;min-height:300px;padding:8px;"></div>
+                <div class="panel-header" style="border-top:1px solid rgba(0,240,255,0.08);">
+                    <span class="panel-label">SURFACE & STRUCTURE</span>
+                </div>
+                <div id="timeseries-chart-surface" style="width:100%;height:300px;min-height:300px;padding:8px;"></div>
+            </div>
+            <div class="panel glass-panel" id="panel-anomalies">
+                <div class="panel-header">
+                    <span class="panel-label">ANOMALY DETECTION</span>
+                </div>
+                <div id="anomalies-content" class="panel-body">
+                    <div class="empty-state">[NO ANOMALIES DETECTED]</div>
+                </div>
+            </div>
+            <div class="panel glass-panel" id="panel-structural">
+                <div class="panel-header">
+                    <span class="panel-label">STRUCTURAL ANALYSIS</span>
+                </div>
+                <div id="structural-content" class="panel-body">
+                    <div class="empty-state">[AWAITING INPUT]</div>
+                </div>
+            </div>
+            <div class="panel glass-panel" id="panel-weather">
+                <div class="panel-header">
+                    <span class="panel-label">SPACE WEATHER</span>
+                </div>
+                <div id="weather-content" class="panel-body">
+                    <div class="empty-state">[LOADING...]</div>
+                </div>
+            </div>
+            <div class="panel glass-panel" id="panel-maps">
+                <div class="panel-header">
+                    <span class="panel-label">HISTORICAL MAPS</span>
+                </div>
+                <div id="maps-content" class="panel-body">
+                    <div class="empty-state">[SELECT LOCATION]</div>
+                </div>
+            </div>
+            <div class="panel glass-panel panel-wide" id="panel-environmental">
+                <div class="panel-header">
+                    <span class="panel-label">ENVIRONMENTAL DATA</span>
+                </div>
+                <div id="env-content" class="panel-body">
+                    <div class="empty-state">[RUN ENVIRONMENTAL SCAN]</div>
+                </div>
+            </div>
+            <div class="panel glass-panel panel-wide" id="panel-webarchive">
+                <div class="panel-header">
+                    <span class="panel-label">WEB ARCHIVES + OSM</span>
+                </div>
+                <div id="webarchive-content" class="panel-body">
+                    <div class="empty-state">[RUN WEB ARCHIVE SCAN]</div>
+                </div>
+            </div>
+            <div class="panel glass-panel panel-wide" id="panel-archdb">
+                <div class="panel-header">
+                    <span class="panel-label">ARCHAEOLOGICAL DATABASES</span>
+                </div>
+                <div id="archdb-content" class="panel-body">
+                    <div class="empty-state">[RUN FULL SPECTRUM SCAN]</div>
+                </div>
+            </div>
+
+            <!-- Site Intelligence -->
+            <div class="panel glass-panel panel-wide" id="panel-site-header" style="min-height:auto;padding:12px 16px;background:linear-gradient(90deg,rgba(0,240,255,0.04),transparent);border-bottom:2px solid rgba(0,240,255,0.15);">
+                <span class="panel-label" style="color:var(--accent);">SITE INTELLIGENCE</span>
+            </div>
+            <div class="panel glass-panel" id="panel-ndvi-change">
+                <div class="panel-header">
+                    <span class="panel-label">NDVI Change Detection</span>
+                    <button class="btn-inline" onclick="loadNDVIChange()">Compare</button>
+                </div>
+                <div id="ndvi-change-content" class="panel-body">
+                    <div class="empty-state">Compare vegetation between two time periods</div>
+                </div>
+            </div>
+            <div class="panel glass-panel" id="panel-elev-profile">
+                <div class="panel-header">
+                    <span class="panel-label">Elevation Cross-Section</span>
+                    <select id="elev-direction" style="background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.06);color:var(--text);padding:4px 8px;font-size:10px;border-radius:3px;font-family:var(--font-mono);outline:none;">
+                        <option value="E-W">East–West</option>
+                        <option value="N-S">North–South</option>
+                        <option value="NE-SW">NE–SW</option>
+                        <option value="NW-SE">NW–SE</option>
+                    </select>
+                    <button class="btn-inline" onclick="loadElevationProfile()">Scan</button>
+                </div>
+                <div id="elev-profile-chart" class="panel-body chart-area"></div>
+            </div>
+            <div class="panel glass-panel" id="panel-water">
+                <div class="panel-header">
+                    <span class="panel-label">Water Proximity</span>
+                    <button class="btn-inline" onclick="loadWaterProximity()">Scan</button>
+                </div>
+                <div id="water-content" class="panel-body">
+                    <div class="empty-state">Find water sources near the site</div>
+                </div>
+            </div>
+            <div class="panel glass-panel" id="panel-geology">
+                <div class="panel-header">
+                    <span class="panel-label">Geological Context</span>
+                    <button class="btn-inline" onclick="loadGeology()">Load</button>
+                </div>
+                <div id="geology-content" class="panel-body">
+                    <div class="empty-state">Bedrock and lithology data</div>
+                </div>
+            </div>
+            <div class="panel glass-panel" id="panel-places">
+                <div class="panel-header">
+                    <span class="panel-label">Nearby Places (GeoNames)</span>
+                    <button class="btn-inline" onclick="loadNearbyPlaces()">Load</button>
+                </div>
+                <div id="places-content" class="panel-body">
+                    <div class="empty-state">Nearby settlements and place names</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Terrain Tab -->
+    <div id="tab-terrain" class="tab-content">
+        <div class="terrain-layout">
+            <div id="terrain-3d"></div>
+            <aside class="sidebar glass-panel">
+                <div class="sidebar-section">
+                    <div class="section-label">TERRAIN MODEL</div>
+                    <p class="sidebar-desc">3D elevation visualization with anomaly overlay. Source: SRTM 30m via Open-Elevation.</p>
+                </div>
+                <div class="sidebar-section">
+                    <button class="btn-scan" onclick="generateTerrain()">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 22L12 2l10 20H2z"/></svg>
+                        Generate Terrain
+                    </button>
+                </div>
+                <div class="sidebar-section">
+                    <div id="terrain-info"></div>
+                </div>
+            </aside>
+        </div>
+    </div>
+
+    <!-- Signals Tab -->
+    <div id="tab-signals" class="tab-content">
+        <div class="signals-layout">
+            <div class="panel glass-panel panel-wide" id="panel-spectrum">
+                <div class="panel-header">
+                    <span class="panel-label">MAGNETIC FIELD (NOAA WMM)</span>
+                    <button class="btn-inline" onclick="loadMagneticField()">LOAD</button>
+                </div>
+                <div id="spectrum-chart" class="panel-body chart-area"></div>
+            </div>
+            <div class="panel glass-panel" id="panel-em-field">
+                <div class="panel-header">
+                    <span class="panel-label">SAR BACKSCATTER (SENTINEL-1)</span>
+                    <button class="btn-inline" onclick="loadSARBackscatter()">LOAD</button>
+                </div>
+                <div id="em-field-chart" class="panel-body chart-area"></div>
+            </div>
+            <div class="panel glass-panel" id="panel-radio">
+                <div class="panel-header">
+                    <span class="panel-label">SOLAR RADIATION (NASA POWER)</span>
+                    <button class="btn-inline" onclick="loadRadioData()">LOAD</button>
+                </div>
+                <div id="radio-chart" class="panel-body chart-area"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- History Tab -->
+    <div id="tab-history" class="tab-content">
+        <div class="analysis-layout" style="padding:16px;">
+            <div class="panel glass-panel panel-wide">
+                <div class="panel-header">
+                    <span class="panel-label">SCAN HISTORY</span>
+                    <button class="btn-inline" onclick="loadHistory()">REFRESH</button>
+                </div>
+                <div id="history-content" class="panel-body">
+                    <div class="empty-state">[LOADING HISTORY...]</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- AI Analyst Tab -->
+    <div id="tab-ai" class="tab-content">
+        <div class="ai-layout">
+            <aside class="sidebar glass-panel ai-sidebar">
+                <div class="sidebar-section">
+                    <div class="section-label">GEMINI AI CORE</div>
+                    <button class="btn-scan" onclick="runGeminiAnalysis()">AI SCAN ANALYSIS</button>
+                    <button class="btn-secondary" onclick="runGeminiReport()">GENERATE REPORT</button>
+                    <button class="btn-secondary" onclick="loadHistoricalContext()">HISTORICAL CONTEXT</button>
+                    <button class="btn-secondary" onclick="runInvestigationPlan()">INVESTIGATION PLAN</button>
+                </div>
+                <div class="sidebar-section">
+                    <div id="ai-status" class="scan-status">Ready</div>
+                    <div id="ai-result" style="margin-top:12px;overflow-y:auto;max-height:50vh;"></div>
+                </div>
+            </aside>
+            <div class="ai-chat-area glass-panel">
+                <div class="panel-header">
+                    <span class="panel-label">AI CONSOLE</span>
+                </div>
+                <div id="chat-messages" style="flex:1;overflow-y:auto;padding:16px;"></div>
+                <div class="chat-input-bar">
+                    <input type="text" id="chat-input" placeholder="Ask about archaeology, anomalies, or any location..." onkeydown="if(event.key==='Enter')sendChat()">
+                    <button class="btn-scan" style="width:auto;padding:8px 20px;" onclick="sendChat()">Send</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
