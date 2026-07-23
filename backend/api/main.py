@@ -1,7 +1,3 @@
-"""
-CHRONOVISOR - FastAPI Backend
-Main API server connecting all pipeline components including Gemini AI.
-"""
 import sys
 import os
 import asyncio
@@ -11,23 +7,14 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from fastapi import FastAPI, Query, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
+from fastapi.responses import HTMLResponse, FileResponse, JSONResponse, PlainTextResponse
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 import numpy as np
 import json
-
-
-class NumpyEncoder(json.JSONEncoder):
-    def default(self, obj):
-        if isinstance(obj, np.integer): return int(obj)
-        if isinstance(obj, np.floating): return float(obj)
-        if isinstance(obj, np.ndarray): return obj.tolist()
-        if isinstance(obj, np.bool_): return bool(obj)
-        return super().default(obj)
-
+from collections import defaultdict
+import time as _time
 
 from pipeline.satellite_engine import SatelliteEngine
 from pipeline.signal_processor import SignalProcessor
@@ -38,9 +25,42 @@ from pipeline.environmental_data import EnvironmentalData
 from pipeline.historical_web import HistoricalWeb
 from pipeline.archaeological_db import ArchaeologicalDB
 
-app = FastAPI(title="CHRONOVISOR", description="Temporal Archaeology Engine - AI-powered analysis", version="0.3.0")
+
+class NumpyEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        if isinstance(obj, np.floating):
+            return float(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        if isinstance(obj, np.bool_):
+            return bool(obj)
+        return super().default(obj)
+
+
+def safe_json(data):
+    return json.loads(json.dumps(data, cls=NumpyEncoder))
+
+
+app = FastAPI(title="CHRONOVISOR", description="Temporal Archaeology Engine", version="0.3.0")
 
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+
+
+_rate_limit_store = defaultdict(list)
+RATE_LIMIT = 30
+RATE_WINDOW = 60
+
+
+def _check_rate_limit(ip: str) -> bool:
+    now = _time.time()
+    _rate_limit_store[ip] = [t for t in _rate_limit_store[ip] if now - t < RATE_WINDOW]
+    if len(_rate_limit_store[ip]) >= RATE_LIMIT:
+        return False
+    _rate_limit_store[ip].append(now)
+    return True
+
 
 @app.middleware("http")
 async def rate_limit_middleware(request, call_next):
@@ -49,6 +69,12 @@ async def rate_limit_middleware(request, call_next):
         return JSONResponse(status_code=429, content={"error": "Rate limit exceeded. 30 req/min.", "retry_after": RATE_WINDOW})
     return await call_next(request)
 
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request, exc):
+    return JSONResponse(status_code=500, content={"error": str(exc), "type": type(exc).__name__})
+
+
 satellite = SatelliteEngine()
 signal_proc = SignalProcessor()
 ingestion = DataIngestion()
@@ -56,17 +82,13 @@ env_data = EnvironmentalData()
 hist_web = HistoricalWeb()
 arch_db = ArchaeologicalDB()
 ai = AIReconstructor()
-
-@app.exception_handler(Exception)
-async def global_exception_handler(request, exc):
-    return JSONResponse(status_code=500, content={"error": str(exc), "type": type(exc).__name__})
 gemini = GeminiAnalyzer()
 
 frontend_dir = Path(__file__).parent.parent.parent / "frontend"
 app.mount("/static", StaticFiles(directory=str(frontend_dir)), name="static")
 
-# Persistent scan history — saved to disk, survives restarts
 HISTORY_FILE = Path(__file__).parent.parent.parent / "data" / "scan_history.json"
+
 
 def _load_history():
     try:
@@ -76,6 +98,7 @@ def _load_history():
         pass
     return []
 
+
 def _save_history(history):
     try:
         HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -83,23 +106,9 @@ def _save_history(history):
     except Exception:
         pass
 
+
 scan_history = _load_history()
 chat_sessions = {}
-
-# Simple rate limiter — 30 requests per minute per IP
-from collections import defaultdict
-import time as _time
-_rate_limit_store = defaultdict(list)
-RATE_LIMIT = 30
-RATE_WINDOW = 60
-
-def _check_rate_limit(ip: str) -> bool:
-    now = _time.time()
-    _rate_limit_store[ip] = [t for t in _rate_limit_store[ip] if now - t < RATE_WINDOW]
-    if len(_rate_limit_store[ip]) >= RATE_LIMIT:
-        return False
-    _rate_limit_store[ip].append(now)
-    return True
 
 
 class LocationRequest(BaseModel):
@@ -135,27 +144,47 @@ class AnomalyExplainRequest(BaseModel):
 @app.get("/", response_class=HTMLResponse)
 async def root():
     index_path = frontend_dir / "index.html"
-    if index_path.exists(): return HTMLResponse(content=index_path.read_text(encoding="utf-8"))
+    if index_path.exists():
+        return HTMLResponse(content=index_path.read_text(encoding="utf-8"))
     return HTMLResponse(content="<h1>CHRONOVISOR</h1>")
-
-
-def safe_json(data):
-    return json.loads(json.dumps(data, cls=NumpyEncoder))
 
 
 @app.get("/api/health")
 async def health():
-    return {"status": "operational", "version": "0.3.0", "engines": {"satellite": satellite.initialized, "signal_processor": True, "data_ingestion": True, "ai_reconstructor": ai.models_loaded, "gemini_ai": gemini.initialized, "environmental": True, "historical_web": True}, "scan_history_count": len(scan_history)}
+    return {
+        "status": "operational",
+        "version": "0.3.0",
+        "engines": {
+            "satellite": satellite.initialized,
+            "signal_processor": True,
+            "data_ingestion": True,
+            "ai_reconstructor": ai.models_loaded,
+            "gemini_ai": gemini.initialized,
+            "environmental": True,
+            "historical_web": True,
+        },
+        "scan_history_count": len(scan_history),
+    }
 
 
 @app.post("/api/satellite/timeseries")
 async def satellite_timeseries(req: LocationRequest):
-    return satellite.get_satellite_timeseries(lat=req.lat, lon=req.lon, radius_m=req.radius_m, start_date=req.start_date, end_date=req.end_date, source=req.source)
+    return satellite.get_satellite_timeseries(
+        lat=req.lat,
+        lon=req.lon,
+        radius_m=req.radius_m,
+        start_date=req.start_date,
+        end_date=req.end_date,
+        source=req.source,
+    )
 
 
 @app.post("/api/satellite/anomalies")
 async def satellite_anomalies(req: LocationRequest):
-    ts = satellite.get_satellite_timeseries(lat=req.lat, lon=req.lon, radius_m=req.radius_m, start_date=req.start_date, end_date=req.end_date, source=req.source)
+    ts = satellite.get_satellite_timeseries(
+        lat=req.lat, lon=req.lon, radius_m=req.radius_m,
+        start_date=req.start_date, end_date=req.end_date, source=req.source
+    )
     timeseries = ts.get("timeseries", [])
     anomalies = satellite.detect_anomalies(timeseries)
     structural = {}
@@ -164,7 +193,12 @@ async def satellite_anomalies(req: LocationRequest):
         thermal = [t["thermal"] for t in timeseries]
         dates = [t["date"] for t in timeseries]
         structural = ai.detect_buried_structures(ndvi, thermal, dates)
-    return safe_json({"location": {"lat": req.lat, "lon": req.lon}, "data_points": len(timeseries), "satellite_anomalies": anomalies, "structural_analysis": structural})
+    return safe_json({
+        "location": {"lat": req.lat, "lon": req.lon},
+        "data_points": len(timeseries),
+        "satellite_anomalies": anomalies,
+        "structural_analysis": structural,
+    })
 
 
 @app.post("/api/satellite/spectral")
@@ -177,7 +211,12 @@ async def signal_analyze(req: SignalRequest):
     if not req.frequencies or not req.amplitudes:
         sr = req.sample_rate or 44100
         t = np.linspace(0, 1.0, sr, endpoint=False)
-        signal = 0.5*np.sin(2*np.pi*120*t) + 0.3*np.sin(2*np.pi*360*t) + 0.15*np.sin(2*np.pi*840*t) + 0.05*np.random.randn(len(t))
+        signal = (
+            0.5 * np.sin(2 * np.pi * 120 * t)
+            + 0.3 * np.sin(2 * np.pi * 360 * t)
+            + 0.15 * np.sin(2 * np.pi * 840 * t)
+            + 0.05 * np.random.randn(len(t))
+        )
         result = signal_proc.analyze_spectrum(signal, sample_rate=sr)
         result["demo_mode"] = True
         result["demo_description"] = "Demo: 120Hz fundamental + 360Hz + 840Hz harmonics"
@@ -191,36 +230,52 @@ async def em_field(req: SignalRequest):
     x = np.linspace(0, 1, grid_size)
     y = np.linspace(0, 1, grid_size)
     xx, yy = np.meshgrid(x, y)
-    field = 0.4*np.exp(-((xx-0.3)**2+(yy-0.4)**2)/0.02) + 0.6*np.exp(-((xx-0.7)**2+(yy-0.6)**2)/0.03) + 0.2*np.exp(-((xx-0.5)**2+(yy-0.2)**2)/0.01) + 0.05*np.random.rand(grid_size, grid_size)
-    return safe_json({"grid_size": grid_size, "field_values": field.tolist(), "hotspot_count": 3, "max_intensity": round(float(np.max(field)), 4), "mean_intensity": round(float(np.mean(field)), 4), "demo_mode": True, "demo_description": "Demo EM field with 3 simulated hotspots"})
+    field = (
+        0.4 * np.exp(-((xx - 0.3) ** 2 + (yy - 0.4) ** 2) / 0.02)
+        + 0.6 * np.exp(-((xx - 0.7) ** 2 + (yy - 0.6) ** 2) / 0.03)
+        + 0.2 * np.exp(-((xx - 0.5) ** 2 + (yy - 0.2) ** 2) / 0.01)
+        + 0.05 * np.random.rand(grid_size, grid_size)
+    )
+    return safe_json({
+        "grid_size": grid_size,
+        "field_values": field.tolist(),
+        "hotspot_count": 3,
+        "max_intensity": round(float(np.max(field)), 4),
+        "mean_intensity": round(float(np.mean(field)), 4),
+        "demo_mode": True,
+        "demo_description": "Demo EM field with 3 simulated hotspots",
+    })
 
 
 @app.get("/api/signal/magnetic-gradient")
 async def magnetic_gradient(lat: float = Query(...), lon: float = Query(...), radius_m: int = 500):
-    """Magnetic field profile across the scan area using NOAA WMM."""
     import concurrent.futures
-    # Sample magnetic intensity at center + 8 surrounding points
-    offsets = [(-1,-1),(-1,0),(-1,1),(0,-1),(0,0),(0,1),(1,-1),(1,0),(1,1)]
-    deg_step = (radius_m / 111320) * 0.8  # approximate meters to degrees
+
+    offsets = [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 0), (0, 1), (1, -1), (1, 0), (1, 1)]
+    deg_step = (radius_m / 111320) * 0.8
 
     def fetch_mag(dlat, dlon):
         return arch_db.magnetic_anomaly(lat + dlat, lon + dlon)
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=9) as ex:
-        futures = {ex.submit(fetch_mag, o[0]*deg_step, o[1]*deg_step): o for o in offsets}
+        futures = {ex.submit(fetch_mag, o[0] * deg_step, o[1] * deg_step): o for o in offsets}
+
     points = []
-    for fut, offset in futures:
+    for fut, offset in futures.items():
         r = fut.result()
         ti = r.get("total_intensity_nt")
         if ti is not None:
             points.append({"offset_x": offset[1], "offset_y": offset[0], "total_intensity_nt": ti})
 
     if not points:
-        return safe_json({"error": "Magnetic data unavailable", "interpretation": ["Use on-site magnetometer for detailed survey."]})
+        return safe_json({
+            "error": "Magnetic data unavailable",
+            "interpretation": ["Use on-site magnetometer for detailed survey."],
+        })
 
     vals = [p["total_intensity_nt"] for p in points]
-    center = next((p for p in points if p["offset_x"] == 0 and p["offset_y"] == None), None)
-    center_val = center["total_intensity_nt"] if center else vals[len(vals)//2]
+    center = next((p for p in points if p["offset_x"] == 0 and p["offset_y"] == 0), None)
+    center_val = center["total_intensity_nt"] if center else vals[len(vals) // 2]
 
     interpretation = []
     gradient = max(vals) - min(vals)
@@ -238,21 +293,23 @@ async def magnetic_gradient(lat: float = Query(...), lon: float = Query(...), ra
         "gradient_nt": round(gradient, 1),
         "mean_nt": round(float(np.mean(vals)), 1),
         "std_nt": round(float(np.std(vals)), 1),
-        "interpretation": interpretation
+        "interpretation": interpretation,
     })
 
 
 @app.get("/api/sar/backscatter")
 async def sar_backscatter(lat: float = Query(...), lon: float = Query(...), radius_m: int = 500, start_date: str = "2020-01-01"):
-    """Sentinel-1 SAR backscatter time series for the selected location."""
     return safe_json(satellite.get_sar_backscatter(lat, lon, radius_m, start_date))
 
 
 @app.post("/api/ai/temporal-change")
 async def temporal_change(req: LocationRequest):
-    ts = satellite.get_satellite_timeseries(lat=req.lat, lon=req.lon, radius_m=req.radius_m, start_date=req.start_date, end_date=req.end_date)
+    ts = satellite.get_satellite_timeseries(
+        lat=req.lat, lon=req.lon, radius_m=req.radius_m, start_date=req.start_date, end_date=req.end_date
+    )
     timeseries = ts.get("timeseries", [])
-    if not timeseries: return {"error": "No data"}
+    if not timeseries:
+        return {"error": "No data"}
     ndvi = [t["ndvi"] for t in timeseries]
     dates = [t["date"] for t in timeseries]
     return safe_json(ai.analyze_temporal_change(ndvi, dates))
@@ -260,19 +317,17 @@ async def temporal_change(req: LocationRequest):
 
 @app.post("/api/ai/terrain")
 async def terrain_3d(lat: float = 28.6139, lon: float = 77.2090, grid_size: int = 20):
-    """Generate 3D terrain. Default 20x20 grid (400 points) to avoid API timeout."""
     terrain_data = ingestion.get_terrain_grid(lat, lon, grid_size=min(grid_size, 30))
-    if "error" in terrain_data: return terrain_data
+    if "error" in terrain_data:
+        return terrain_data
     return safe_json(ai.reconstruct_3d_terrain(np.array(terrain_data["elevation"]), lat, lon))
 
-
-# ── Site Intelligence Endpoints ──
 
 @app.get("/api/site/ndvi-change")
 async def ndvi_change(
     lat: float = Query(...), lon: float = Query(...), radius_m: int = 500,
     p1_start: str = "2018-01-01", p1_end: str = "2018-12-31",
-    p2_start: str = "2024-01-01", p2_end: str = "2024-12-31"
+    p2_start: str = "2024-01-01", p2_end: str = "2024-12-31",
 ):
     return safe_json(satellite.ndvi_change_detection(lat, lon, radius_m, p1_start, p1_end, p2_start, p2_end))
 
@@ -301,13 +356,16 @@ async def nearby_places(lat: float = Query(...), lon: float = Query(...), radius
 async def space_weather(days: int = 7):
     return safe_json({"solar_wind": ingestion.get_noaa_space_weather(days), "geomagnetic": ingestion.get_geomagnetic_indices(days)})
 
+
 @app.get("/api/data/lightning")
 async def lightning(lat: float = 28.6139, lon: float = 77.2090, radius_km: int = 100):
     return safe_json(ingestion.get_lightning_data(lat, lon, radius_km))
 
+
 @app.get("/api/data/historical-maps")
 async def historical_maps(lat: float = 28.6139, lon: float = 77.2090):
     return safe_json(ingestion.get_historical_maps(lat, lon))
+
 
 @app.get("/api/data/radio-astronomy")
 async def radio_astronomy(freq_mhz: float = 1420, lat: float = 28.6139, lon: float = 77.2090):
@@ -316,7 +374,6 @@ async def radio_astronomy(freq_mhz: float = 1420, lat: float = 28.6139, lon: flo
 
 @app.get("/api/full-scan")
 async def full_scan(lat: float = Query(...), lon: float = Query(...), radius_m: int = 500, start_date: str = "2017-01-01"):
-    """FULL CHRONOVISOR SCAN - runs all engines in PARALLEL."""
     ts_task = asyncio.create_task(asyncio.to_thread(satellite.get_satellite_timeseries, lat, lon, radius_m, start_date))
     weather_task = asyncio.create_task(asyncio.to_thread(ingestion.get_noaa_space_weather, 3))
     maps_task = asyncio.create_task(asyncio.to_thread(ingestion.get_historical_maps, lat, lon))
@@ -343,25 +400,31 @@ async def full_scan(lat: float = Query(...), lon: float = Query(...), radius_m: 
     scan_result = safe_json({
         "scan_target": {"lat": lat, "lon": lon, "radius_m": radius_m},
         "satellite": {"source": ts.get("source", "unknown"), "data_points": len(timeseries), "timeseries": timeseries, "error": ts.get("error")},
-        "anomalies": anomalies, "structural_analysis": structural, "temporal_changes": temporal,
+        "anomalies": anomalies,
+        "structural_analysis": structural,
+        "temporal_changes": temporal,
         "spectral_indices": spectral_r,
         "space_weather": {"interpretation": space_weather_r.get("interpretation", []), "error": space_weather_r.get("error")},
         "lightning": {"strikes": lightning_r.get("strike_count"), "error": lightning_r.get("error"), "sources": lightning_r.get("sources")},
         "historical_maps": maps_r.get("available_sources", []),
-        "summary": generate_summary(anomalies, structural, temporal, spectral_r)
+        "summary": generate_summary(anomalies, structural, temporal, spectral_r),
     })
 
-    scan_history.append({"lat": lat, "lon": lon, "radius_m": radius_m, "anomaly_count": len(anomalies), "structural_probability": structural.get("structural_probability", 0), "data_points": len(timeseries), "result": scan_result})
+    scan_history.append({
+        "lat": lat, "lon": lon, "radius_m": radius_m,
+        "anomaly_count": len(anomalies),
+        "structural_probability": structural.get("structural_probability", 0),
+        "data_points": len(timeseries),
+        "result": scan_result,
+    })
     _save_history(scan_history)
     return scan_result
 
 
-# Gemini AI endpoints
-
 @app.post("/api/gemini/analyze")
 async def gemini_analyze(req: LocationRequest):
-    """Run full scan + Gemini AI interpretation."""
-    if not gemini.initialized: return {"error": "Gemini not initialized. Set GEMINI_API_KEY in .env"}
+    if not gemini.initialized:
+        return {"error": "Gemini not initialized. Set GEMINI_API_KEY in .env"}
     ts = satellite.get_satellite_timeseries(req.lat, req.lon, req.radius_m, req.start_date, req.end_date, req.source)
     timeseries = ts.get("timeseries", [])
     anomalies = satellite.detect_anomalies(timeseries)
@@ -375,14 +438,24 @@ async def gemini_analyze(req: LocationRequest):
         temporal = ai.analyze_temporal_change(ndvi, dates)
     spectral = satellite.compute_spectral_indices(req.lat, req.lon, req.radius_m)
     weather = ingestion.get_noaa_space_weather(3)
-    scan_data = {"scan_target": {"lat": req.lat, "lon": req.lon, "radius_m": req.radius_m}, "satellite": {"source": ts.get("source", "unknown"), "data_points": len(timeseries), "timeseries": timeseries, "error": ts.get("error")}, "anomalies": anomalies, "structural_analysis": structural, "temporal_changes": temporal, "spectral_indices": spectral, "space_weather": weather, "summary": generate_summary(anomalies, structural, temporal, spectral)}
+    scan_data = {
+        "scan_target": {"lat": req.lat, "lon": req.lon, "radius_m": req.radius_m},
+        "satellite": {"source": ts.get("source", "unknown"), "data_points": len(timeseries), "timeseries": timeseries, "error": ts.get("error")},
+        "anomalies": anomalies,
+        "structural_analysis": structural,
+        "temporal_changes": temporal,
+        "spectral_indices": spectral,
+        "space_weather": weather,
+        "summary": generate_summary(anomalies, structural, temporal, spectral),
+    }
     ai_result = await gemini.analyze_scan_results(scan_data)
     return {"scan": safe_json(scan_data), "ai_analysis": ai_result}
 
 
 @app.post("/api/gemini/report")
 async def gemini_report(req: LocationRequest, location_name: str = ""):
-    if not gemini.initialized: return {"error": "Gemini not initialized"}
+    if not gemini.initialized:
+        return {"error": "Gemini not initialized"}
     ts = satellite.get_satellite_timeseries(req.lat, req.lon, req.radius_m, req.start_date)
     timeseries = ts.get("timeseries", [])
     anomalies = satellite.detect_anomalies(timeseries)
@@ -394,48 +467,60 @@ async def gemini_report(req: LocationRequest, location_name: str = ""):
         dates = [t["date"] for t in timeseries]
         structural = ai.detect_buried_structures(ndvi, thermal, dates)
         temporal = ai.analyze_temporal_change(ndvi, dates)
-    scan_data = {"scan_target": {"lat": req.lat, "lon": req.lon}, "satellite": {"data_points": len(timeseries)}, "anomalies": anomalies, "structural_analysis": structural, "temporal_changes": temporal}
+    scan_data = {
+        "scan_target": {"lat": req.lat, "lon": req.lon},
+        "satellite": {"data_points": len(timeseries)},
+        "anomalies": anomalies,
+        "structural_analysis": structural,
+        "temporal_changes": temporal,
+    }
     return await gemini.generate_report(scan_data, location_name)
 
 
 @app.post("/api/gemini/explain-anomaly")
 async def gemini_explain_anomaly(req: AnomalyExplainRequest):
-    if not gemini.initialized: return {"error": "Gemini not initialized"}
+    if not gemini.initialized:
+        return {"error": "Gemini not initialized"}
     return await gemini.explain_anomaly(req.anomaly, req.context)
 
 
 @app.get("/api/gemini/history")
 async def gemini_history(lat: float, lon: float, name: str = ""):
-    if not gemini.initialized: return {"error": "Gemini not initialized"}
+    if not gemini.initialized:
+        return {"error": "Gemini not initialized"}
     return await gemini.historical_context(lat, lon, name)
 
 
 @app.post("/api/gemini/compare")
 async def gemini_compare(req: CompareRequest):
-    if not gemini.initialized: return {"error": "Gemini not initialized"}
+    if not gemini.initialized:
+        return {"error": "Gemini not initialized"}
     return await gemini.compare_locations(req.locations)
 
 
 @app.post("/api/gemini/chat")
 async def gemini_chat(req: ChatRequest):
-    if not gemini.initialized: return {"error": "Gemini not initialized"}
-    if req.session_id not in chat_sessions: chat_sessions[req.session_id] = []
+    if not gemini.initialized:
+        return {"error": "Gemini not initialized"}
+    if req.session_id not in chat_sessions:
+        chat_sessions[req.session_id] = []
     scan_context = None
     if req.scan_index is not None and 0 <= req.scan_index < len(scan_history):
         scan_context = scan_history[req.scan_index].get("result", {})
     elif scan_history:
-        # Auto-attach the most recent scan so AI has real data to reference
         scan_context = scan_history[-1].get("result", {})
     result = await gemini.chat(req.message, scan_context, chat_sessions[req.session_id])
     chat_sessions[req.session_id].append({"role": "user", "content": req.message})
-    if "reply" in result: chat_sessions[req.session_id].append({"role": "assistant", "content": result["reply"]})
+    if "reply" in result:
+        chat_sessions[req.session_id].append({"role": "assistant", "content": result["reply"]})
     chat_sessions[req.session_id] = chat_sessions[req.session_id][-20:]
     return result
 
 
 @app.post("/api/gemini/investigate")
 async def gemini_investigate(req: LocationRequest):
-    if not gemini.initialized: return {"error": "Gemini not initialized"}
+    if not gemini.initialized:
+        return {"error": "Gemini not initialized"}
     ts = satellite.get_satellite_timeseries(req.lat, req.lon, req.radius_m, req.start_date)
     timeseries = ts.get("timeseries", [])
     anomalies = satellite.detect_anomalies(timeseries)
@@ -445,107 +530,125 @@ async def gemini_investigate(req: LocationRequest):
         thermal = [t["thermal"] for t in timeseries]
         dates = [t["date"] for t in timeseries]
         structural = ai.detect_buried_structures(ndvi, thermal, dates)
-    return await gemini.suggest_investigation({"scan_target": {"lat": req.lat, "lon": req.lon}, "anomalies": anomalies, "structural_analysis": structural})
+    return await gemini.suggest_investigation({
+        "scan_target": {"lat": req.lat, "lon": req.lon},
+        "anomalies": anomalies,
+        "structural_analysis": structural,
+    })
 
-
-# Environmental data endpoints (NEW)
 
 @app.get("/api/env/soil")
 async def env_soil(lat: float, lon: float, depth: str = "0-5cm"):
     return safe_json(env_data.get_soil_data(lat, lon, depth))
 
+
 @app.get("/api/env/faults")
 async def env_faults(lat: float, lon: float, radius_km: int = 100):
     return safe_json(env_data.get_fault_lines(lat, lon, radius_km))
+
 
 @app.get("/api/env/population")
 async def env_population(lat: float, lon: float):
     return safe_json(env_data.get_population_density(lat, lon))
 
+
 @app.get("/api/env/water-table")
 async def env_water(lat: float, lon: float):
     return safe_json(env_data.get_water_table(lat, lon))
+
 
 @app.get("/api/env/full")
 async def env_full(lat: float, lon: float, radius_km: int = 100):
     return safe_json(env_data.full_environmental_scan(lat, lon, radius_km))
 
-# Historical web endpoints (NEW)
 
 @app.get("/api/web/wayback")
 async def web_wayback(lat: float, lon: float, place_name: str = ""):
     return safe_json(hist_web.wayback_search(lat, lon, place_name))
 
+
 @app.get("/api/web/osm")
 async def web_osm(lat: float, lon: float, radius_m: int = 500):
     return safe_json(hist_web.osm_history(lat, lon, radius_m))
+
 
 @app.get("/api/web/full")
 async def web_full(lat: float, lon: float, place_name: str = "", radius_m: int = 500):
     return safe_json(hist_web.full_web_scan(lat, lon, place_name, radius_m))
 
-# Archaeological database endpoints (NEW)
 
 @app.get("/api/arch/pleiades")
 async def arch_pleiades(lat: float, lon: float, radius_km: int = 50):
     return safe_json(arch_db.pleiades_nearby(lat, lon, radius_km))
 
+
 @app.get("/api/arch/wikidata")
 async def arch_wikidata(lat: float, lon: float, radius_km: int = 50):
     return safe_json(arch_db.wikidata_sites(lat, lon, radius_km))
+
 
 @app.get("/api/arch/gbif")
 async def arch_gbif(lat: float, lon: float, radius_km: int = 10):
     return safe_json(arch_db.gbif_species(lat, lon, radius_km))
 
+
 @app.get("/api/arch/magnetic")
 async def arch_magnetic(lat: float, lon: float):
     return safe_json(arch_db.magnetic_anomaly(lat, lon))
+
 
 @app.get("/api/arch/nightlights")
 async def arch_nightlights(lat: float, lon: float):
     return safe_json(arch_db.nighttime_lights(lat, lon))
 
+
 @app.get("/api/arch/lidar")
 async def arch_lidar(lat: float, lon: float):
     return safe_json(arch_db.lidar_dem(lat, lon))
+
 
 @app.get("/api/arch/full")
 async def arch_full(lat: float, lon: float, radius_km: int = 50):
     return safe_json(arch_db.full_db_scan(lat, lon, radius_km))
 
+
 @app.get("/api/arch/climate")
 async def arch_climate(lat: float, lon: float):
     return safe_json(arch_db.climate_data(lat, lon))
+
 
 @app.get("/api/arch/landcover")
 async def arch_landcover(lat: float, lon: float):
     return safe_json(arch_db.land_cover(lat, lon))
 
+
 @app.get("/api/arch/suitability")
 async def arch_suitability(lat: float, lon: float, radius_km: int = 50):
     return safe_json(arch_db.site_suitability(lat, lon, radius_km))
+
 
 @app.get("/api/geocode")
 async def geocode(q: str = Query(..., description="Place name to search")):
     return safe_json(arch_db.geocode(q))
 
+
 @app.get("/api/arch/crossref")
 async def arch_crossref(lat: float, lon: float, radius_km: int = 50):
     return safe_json(arch_db.cross_reference(lat, lon, radius_km))
+
 
 @app.get("/api/arch/temporal")
 async def arch_temporal(lat: float, lon: float):
     return safe_json(arch_db.temporal_changes(lat, lon))
 
+
 @app.post("/api/arch/batch")
 async def arch_batch(locations: list):
-    """Batch scan multiple locations. Body: [{lat, lon, name}, ...]"""
     return safe_json(arch_db.batch_scan(locations))
+
 
 @app.get("/api/compare")
 async def compare_scans(indices: str = Query(..., description="Comma-separated scan history indices")):
-    """Compare multiple scans from history."""
     try:
         idx_list = [int(i.strip()) for i in indices.split(",")]
         scans = []
@@ -570,9 +673,9 @@ async def compare_scans(indices: str = Query(..., description="Comma-separated s
     except Exception as e:
         return {"error": str(e)}
 
+
 @app.get("/api/export/json")
 async def export_json(lat: float, lon: float):
-    """Export latest scan as JSON."""
     scan = None
     for s in reversed(scan_history):
         if abs(s.get("lat", 0) - lat) < 0.01 and abs(s.get("lon", 0) - lon) < 0.01:
@@ -582,9 +685,9 @@ async def export_json(lat: float, lon: float):
         return {"error": "No scan found. Run a scan first."}
     return JSONResponse(content=scan)
 
+
 @app.get("/api/export/csv")
 async def export_csv(lat: float, lon: float):
-    """Export latest scan summary as CSV."""
     scan = None
     for s in reversed(scan_history):
         if abs(s.get("lat", 0) - lat) < 0.01 and abs(s.get("lon", 0) - lon) < 0.01:
@@ -593,10 +696,12 @@ async def export_csv(lat: float, lon: float):
     if not scan:
         return {"error": "No scan found. Run a scan first."}
     result = arch_db.export_scan(scan, "csv")
-    from fastapi.responses import PlainTextResponse
-    return PlainTextResponse(content=result.get("data", ""), media_type="text/csv", headers={"Content-Disposition": "attachment; filename=chronovisor_scan.csv"})
+    return PlainTextResponse(
+        content=result.get("data", ""),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=chronovisor_scan.csv"},
+    )
 
-# MEGA SCAN - everything combined (NEW)
 
 @app.get("/api/mega-scan")
 async def mega_scan(
@@ -604,13 +709,8 @@ async def mega_scan(
     lon: float = Query(...),
     radius_m: int = 500,
     start_date: str = "2017-01-01",
-    place_name: str = ""
+    place_name: str = "",
 ):
-    """MEGA SCAN: satellite + environmental + historical web + AI analysis. Everything."""
-    # Run all data sources in parallel
-    import concurrent.futures
-
-    # Satellite
     ts = satellite.get_satellite_timeseries(lat, lon, radius_m, start_date)
     timeseries = ts.get("timeseries", [])
     anomalies = satellite.detect_anomalies(timeseries)
@@ -624,7 +724,8 @@ async def mega_scan(
         temporal = ai.analyze_temporal_change(ndvi, dates)
     spectral = satellite.compute_spectral_indices(lat, lon, radius_m)
 
-    # Environmental + Web in parallel with error isolation and retry
+    import concurrent.futures
+
     def safe_call(fn, *args):
         import time as _t
         for attempt in range(2):
@@ -675,10 +776,17 @@ async def mega_scan(
     landcover_r = landcover_f.result()
     suitability_r = suitability_f.result()
 
-    sources_ok = sum(1 for r in [soil_r, fault_r, water_r, pop_r, wayback_r, osm_r, weather_r, pleiades_r, wikidata_r, nightlight_r, magnetic_r, climate_r, landcover_r, suitability_r] if isinstance(r, dict) and "error" not in r)
+    sources_ok = sum(
+        1
+        for r in [
+            soil_r, fault_r, water_r, pop_r, wayback_r, osm_r, weather_r,
+            pleiades_r, wikidata_r, nightlight_r, magnetic_r, climate_r,
+            landcover_r, suitability_r,
+        ]
+        if isinstance(r, dict) and "error" not in r
+    )
     sources_total = 14
 
-    # AI FUSION — combine all data sources into unified assessment
     fused = ai.fuse_all_data(
         structural=structural,
         anomalies=anomalies,
@@ -694,7 +802,7 @@ async def mega_scan(
 
     result = safe_json({
         "scan_target": {"lat": lat, "lon": lon, "radius_m": radius_m, "place_name": place_name},
-        "data_sources": {"ok": sources_ok, "total": sources_total, "status": str(sources_ok) + "/" + str(sources_total) + " sources available"},
+        "data_sources": {"ok": sources_ok, "total": sources_total, "status": f"{sources_ok}/{sources_total} sources available"},
         "satellite": {"source": ts.get("source", "unknown"), "data_points": len(timeseries), "timeseries": timeseries, "error": ts.get("error")},
         "anomalies": anomalies,
         "structural_analysis": structural,
@@ -731,16 +839,23 @@ async def mega_scan(
         },
     })
 
-    scan_history.append({"lat": lat, "lon": lon, "radius_m": radius_m, "place_name": place_name, "anomaly_count": len(anomalies), "structural_probability": structural.get("structural_probability", 0), "data_points": len(timeseries), "result": result, "type": "mega"})
+    scan_history.append({
+        "lat": lat, "lon": lon, "radius_m": radius_m, "place_name": place_name,
+        "anomaly_count": len(anomalies),
+        "structural_probability": structural.get("structural_probability", 0),
+        "data_points": len(timeseries),
+        "result": result,
+        "type": "mega",
+    })
     _save_history(scan_history)
     return result
 
-# PDF Export (NEW)
+
+from datetime import datetime
+
 
 @app.get("/api/export/report")
 async def export_report(lat: float, lon: float, place_name: str = "", format: str = "html"):
-    """Export scan report as downloadable HTML (PDF-ready)."""
-    # Find latest scan for this location
     scan = None
     for s in reversed(scan_history):
         if abs(s.get("lat", 0) - lat) < 0.01 and abs(s.get("lon", 0) - lon) < 0.01:
@@ -750,13 +865,11 @@ async def export_report(lat: float, lon: float, place_name: str = "", format: st
     if not scan:
         return {"error": "No scan found for this location. Run a scan first."}
 
-    # Generate Gemini report if available
     report_md = ""
     if gemini.initialized:
         report = await gemini.generate_report(scan, place_name)
         report_md = report.get("report", "")
 
-    # Build HTML report using FUSED assessment data
     target = scan.get("scan_target", {})
     fused = scan.get("fused_assessment", {})
     summary = scan.get("summary", {})
@@ -767,7 +880,8 @@ async def export_report(lat: float, lon: float, place_name: str = "", format: st
     components = fused.get("component_scores", {})
 
     html = """<!DOCTYPE html><html><head><meta charset="utf-8"><title>CHRONOVISOR Report - """ + str(place_name or f"{lat},{lon}") + """</title>
-<style>body{font-family:Georgia,serif;max-width:900px;margin:40px auto;padding:0 20px;color:#222;line-height:1.7;}
+<style>
+body{font-family:Georgia,serif;max-width:900px;margin:40px auto;padding:0 20px;color:#222;line-height:1.7;}
 h1{color:#1a5c3a;border-bottom:3px solid #1a5c3a;padding-bottom:10px;}
 h2{color:#2d7a4f;margin-top:30px;border-bottom:1px solid #c3e6cb;padding-bottom:6px;}
 h3{color:#3d8b5e;margin-top:20px;}
@@ -786,7 +900,8 @@ th{background:#1a5c3a;color:white;font-size:12px;letter-spacing:1px;}
 .positive{background:#d4edda;color:#155724;}
 .negative{background:#f8d7da;color:#721c24;}
 .footer{margin-top:40px;padding-top:20px;border-top:2px solid #eee;font-size:11px;color:#999;}
-@media print{body{margin:0;padding:0 15px;}h1{font-size:20px;}}</style></head><body>
+@media print{body{margin:0;padding:0 15px;}h1{font-size:20px;}}
+</style></head><body>
 <h1>CHRONOVISOR Archaeological Report</h1>
 <p><strong>Location:</strong> """ + str(place_name or f"{lat}, {lon}") + """ (""" + str(lat) + """, """ + str(lon) + """)</p>
 <p><strong>Date:</strong> """ + datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC") + """</p>
@@ -803,30 +918,25 @@ th{background:#1a5c3a;color:white;font-size:12px;letter-spacing:1px;}
 </div>
 """
 
-    # Recommendation
     rec = fused.get("recommendation", summary.get("recommendation", ""))
     if rec:
         html += '<div class="finding" style="border-left-color:#6f42c1;"><strong>RECOMMENDATION:</strong> ' + rec + '</div>\n'
 
-    # Findings
     html += '<h3>Key Findings</h3>\n'
     for f in fused.get("findings", summary.get("findings", [])):
         html += '<div class="finding">' + f + '</div>\n'
 
-    # Warnings
     for w in fused.get("warnings", []):
         html += '<div class="finding warning">WARNING: ' + w + '</div>\n'
 
-    # Component scores
     if components:
         html += '<h2>2. Component Scores</h2>\n<table><tr><th>Factor</th><th>Score</th><th>Weight</th><th>Contribution</th></tr>\n'
         weights = fused.get("weights", {})
         for k, v in components.items():
             w = weights.get(k, 0)
-            html += '<tr><td>' + k.replace("_", " ").title() + '</td><td>' + str(v) + '%</td><td>' + str(int(w*100)) + '%</td><td>' + str(round(v*w, 1)) + '</td></tr>\n'
+            html += '<tr><td>' + k.replace("_", " ").title() + '</td><td>' + str(v) + '%</td><td>' + str(int(w * 100)) + '%</td><td>' + str(round(v * w, 1)) + '</td></tr>\n'
         html += '</table>\n'
 
-    # Modifiers
     mods = fused.get("modifiers", [])
     if mods:
         html += '<h3>Score Modifiers</h3>\n'
@@ -834,13 +944,11 @@ th{background:#1a5c3a;color:white;font-size:12px;letter-spacing:1px;}
             cls = "positive" if "+" in m.get("effect", "") else "negative"
             html += '<span class="modifier ' + cls + '">' + m.get("factor", "") + ': ' + m.get("effect", "") + ' (' + m.get("reason", "") + ')</span>\n'
 
-    # Anomalies
     if anomalies:
         html += '<h2>3. Satellite Anomalies</h2>\n'
         for a in anomalies[:10]:
             html += '<div class="finding warning"><strong>' + str(a.get("type", "")) + '</strong> - ' + str(a.get("date", "")) + '<br>' + str(a.get("interpretation", "")) + '</div>\n'
 
-    # Environmental
     if env:
         html += '<h2>4. Environmental Context</h2>\n'
         soil = env.get("soil", {})
@@ -865,7 +973,6 @@ th{background:#1a5c3a;color:white;font-size:12px;letter-spacing:1px;}
             for i in water.get("interpretation", []):
                 html += '<div class="finding">' + i + '</div>\n'
 
-    # Web archives
     if web:
         html += '<h2>5. Historical Web Data</h2>\n'
         wb = web.get("wayback", {})
@@ -881,17 +988,16 @@ th{background:#1a5c3a;color:white;font-size:12px;letter-spacing:1px;}
                 html += '<li>' + str(h.get("name", "Unnamed")) + ' (' + str(h.get("historic", h.get("heritage", "historic"))) + ')</li>\n'
             html += '</ul>\n'
 
-    # AI report
     if report_md:
         html += '<h2>6. AI Analysis</h2>\n<div style="white-space:pre-wrap;font-size:14px;">' + report_md + '</div>\n'
 
     html += '<div class="footer">Generated by CHRONOVISOR Temporal Archaeology Engine v0.3.0 | Fused Score: ' + str(fused.get("fused_score", 0)) + '% | Confidence: ' + str(fused.get("confidence", "N/A")) + '</div></body></html>'
 
-    from fastapi.responses import HTMLResponse
-    return HTMLResponse(content=html, headers={"Content-Disposition": "attachment; filename=chronovisor_report.html"})
+    return HTMLResponse(
+        content=html,
+        headers={"Content-Disposition": "attachment; filename=chronovisor_report.html"},
+    )
 
-
-# Scan history
 
 @app.get("/api/history")
 async def get_history():
@@ -900,11 +1006,10 @@ async def get_history():
 
 @app.get("/api/history/{index}")
 async def get_history_scan(index: int):
-    if 0 <= index < len(scan_history): return scan_history[index]["result"]
+    if 0 <= index < len(scan_history):
+        return scan_history[index]["result"]
     raise HTTPException(status_code=404, detail="Scan not found")
 
-
-# WebSocket
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
@@ -936,13 +1041,21 @@ def generate_summary(anomalies, structural, temporal, spectral):
         findings.append(str(len(anomalies)) + " satellite anomalies detected")
         veg = [a for a in anomalies if a.get("type") == "vegetation_anomaly"]
         th = [a for a in anomalies if a.get("type") == "thermal_anomaly"]
-        if veg: findings.append("Vegetation stress pattern - possible subsurface structure")
-        if th: findings.append("Thermal anomalies - possible stone/void beneath surface")
+        if veg:
+            findings.append("Vegetation stress pattern - possible subsurface structure")
+        if th:
+            findings.append("Thermal anomalies - possible stone/void beneath surface")
     change_points = temporal.get("change_points", [])
-    if change_points: findings.append(str(len(change_points)) + " temporal change events detected")
+    if change_points:
+        findings.append(str(len(change_points)) + " temporal change events detected")
     interp = spectral.get("interpretation", [])
     findings.extend(interp[:2])
-    return {"findings": findings, "confidence": confidence, "recommendation": "Deploy ground-penetrating radar" if confidence in ["high", "medium"] else "Collect more data", "archaeological_potential": struct_score}
+    return {
+        "findings": findings,
+        "confidence": confidence,
+        "recommendation": "Deploy ground-penetrating radar" if confidence in ["high", "medium"] else "Collect more data",
+        "archaeological_potential": struct_score,
+    }
 
 
 if __name__ == "__main__":
@@ -951,5 +1064,5 @@ if __name__ == "__main__":
     satellite.initialize()
     ai.load_models()
     gemini.initialize()
-    print("Starting CHRONOVISOR on http://localhost:" + str(API_PORT))
+    print(f"Starting CHRONOVISOR on http://localhost:{API_PORT}")
     uvicorn.run(app, host=API_HOST, port=API_PORT)
