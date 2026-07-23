@@ -333,6 +333,7 @@ function formatMarkdown(text) {
 document.addEventListener('DOMContentLoaded', () => {
     initBoot();
     initMap();
+    loadLatestScan();
 });
 
 document.querySelectorAll('.nav-btn').forEach(btn => {
@@ -341,10 +342,74 @@ document.querySelectorAll('.nav-btn').forEach(btn => {
         document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
         btn.classList.add('active');
         document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+
+        // Auto-load data when Analysis tab is activated
+        if (btn.dataset.tab === 'analysis') {
+            loadLatestScan();
+        }
     });
 });
 
 let _lastTimeseriesData = null;
+
+function loadLatestScan() {
+    // Only load on Analysis tab
+    if (!document.getElementById('tab-analysis').classList.contains('active')) {
+        return;
+    }
+
+    const status = document.getElementById('scan-status') || document.getElementById('ai-status');
+    if (status) status.innerHTML = 'Loading latest scan...';
+
+    apiGet('/api/history')
+        .then(result => {
+            if (!result?.scans?.length) {
+                showNoScanMessage();
+                return;
+            }
+
+            const latestScan = result.scans[result.scans.length - 1];
+            if (latestScan?.id && latestScan?.result) {
+                viewHistoryScan(latestScan.id);
+            } else {
+                showNoScanMessage();
+            }
+        })
+        .catch(() => {
+            if (status) status.innerHTML = 'Error loading scan';
+        });
+}
+
+function showNoScanMessage() {
+    const summaryEl = document.getElementById('summary-content');
+    const anomaliesEl = document.getElementById('anomalies-content');
+    const structuralEl = document.getElementById('structural-content');
+    const envEl = document.getElementById('env-content');
+    const webEl = document.getElementById('webarchive-content');
+    const archEl = document.getElementById('archdb-content');
+
+    if (summaryEl) {
+        summaryEl.innerHTML = `
+            <div class="empty-state">
+                <div style="margin-bottom: 12px; font-size: 14px; color: var(--text-tertiary);">
+                    No scan data found.
+                </div>
+                <div style="font-size: 12px; color: var(--text-muted);">
+                    Run a scan from the Map tab to analyze a location.
+                </div>
+                <button class="btn-scan" onclick="document.querySelector('[data-tab=\"map\"]').click(); searchPlace()" style="margin-top: 16px;">
+                    Search Location
+                </button>
+            </div>
+        `;
+    }
+
+    if (anomaliesEl) anomaliesEl.innerHTML = '<div class="empty-state">Scan data will appear here</div>';
+    if (structuralEl) structuralEl.innerHTML = '<div class="empty-state">Scan data will appear here</div>';
+    if (envEl) envEl.innerHTML = '<div class="empty-state">Scan data will appear here</div>';
+    if (webEl) webEl.innerHTML = '<div class="empty-state">Scan data will appear here</div>';
+    if (archEl) archEl.innerHTML = '<div class="empty-state">Scan data will appear here</div>';
+}
 
 function plotTimeseries(data) {
     _lastTimeseriesData = data;
