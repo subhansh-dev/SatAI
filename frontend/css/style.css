@@ -529,6 +529,24 @@ header.scrolled {
 .btn-scan:active {
     transform: scale(0.98);
 }
+.btn-scan.loading,
+.btn-secondary.loading,
+.btn-inline.loading {
+    pointer-events: none;
+    opacity: 0.6;
+}
+.btn-scan.loading {
+    background: var(--accent-dim);
+    box-shadow: none;
+}
+.btn-secondary.loading {
+    color: var(--text-tertiary);
+    border-color: rgba(200, 168, 124, 0.08);
+}
+.btn-inline.loading {
+    color: var(--text-tertiary);
+    border-color: rgba(200, 168, 124, 0.08);
+}
 
 .btn-secondary {
     display: flex;
@@ -1231,6 +1249,11 @@ header.scrolled {
 @keyframes data-stream {
     0% { background-position: 0% 0%; }
     100% { background-position: 0% 100%; }
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
 }
 
 /* ═══════ RESPONSIVE ═══════ */

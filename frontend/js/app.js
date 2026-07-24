@@ -130,7 +130,21 @@ function getLatestScanIndex() {
 }
 
 // ─── SCAN FUNCTIONS ──────────────────────────────────
-async function runFullScan() {
+function setBtnLoading(btn, loading) {
+    if (!btn) return;
+    if (loading) {
+        btn._origText = btn.innerHTML;
+        btn.classList.add('loading');
+        btn.innerHTML = '<span style="display:inline-flex;align-items:center;gap:6px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="animation:spin 0.8s linear infinite;"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>SCANNING...</span>';
+        btn.style.justifyContent = 'center';
+    } else {
+        btn.classList.remove('loading');
+        btn.innerHTML = btn._origText || btn.innerHTML;
+    }
+}
+
+async function runFullScan(btn) {
+    setBtnLoading(btn, true);
     const loc = getLocationData();
     const result = await apiGet(`/api/full-scan?lat=${loc.lat}&lon=${loc.lon}&radius_m=${loc.radius_m}&start_date=${loc.start_date}`);
     if (result) {
@@ -138,9 +152,11 @@ async function runFullScan() {
         document.querySelector('[data-tab="analysis"]').click();
         displayFullScanResults(result);
     }
+    setBtnLoading(btn, false);
 }
 
-async function runMegaScan() {
+async function runMegaScan(btn) {
+    setBtnLoading(btn, true);
     const loc = getLocationData();
     const place = prompt('Place name (optional):') || '';
     const result = await apiGet(`/api/mega-scan?lat=${loc.lat}&lon=${loc.lon}&radius_m=${loc.radius_m}&start_date=${loc.start_date}&place_name=${encodeURIComponent(place)}`);
@@ -149,9 +165,11 @@ async function runMegaScan() {
         document.querySelector('[data-tab="analysis"]')?.click();
         displayFullScanResults(result);
     }
+    setBtnLoading(btn, false);
 }
 
-async function runSatelliteAnalysis() {
+async function runSatelliteAnalysis(btn) {
+    setBtnLoading(btn, true);
     const loc = getLocationData();
     const result = await apiPost('/api/satellite/timeseries', loc);
     if (result) {
@@ -159,9 +177,11 @@ async function runSatelliteAnalysis() {
         document.querySelector('[data-tab="analysis"]')?.click();
         displayFullScanResults(_lastScanData);
     }
+    setBtnLoading(btn, false);
 }
 
-async function runAnomalyDetection() {
+async function runAnomalyDetection(btn) {
+    setBtnLoading(btn, true);
     const loc = getLocationData();
     const result = await apiPost('/api/satellite/anomalies', loc);
     if (result) {
@@ -172,18 +192,22 @@ async function runAnomalyDetection() {
             : anomalies.map(a => `<div class="finding-card warning"><strong>${(a.type || 'unknown').replace(/_/g, ' ').toUpperCase()}</strong><br>${a.interpretation || a.description || JSON.stringify(a)}</div>`).join('');
         document.getElementById('anomalies-content').innerHTML = html;
     }
+    setBtnLoading(btn, false);
 }
 
-async function runEnvironmentalScan() {
+async function runEnvironmentalScan(btn) {
+    setBtnLoading(btn, true);
     const loc = getLocationData();
     const result = await apiGet(`/api/env/full?lat=${loc.lat}&lon=${loc.lon}`);
     if (result) {
         document.querySelector('[data-tab="analysis"]')?.click();
         displayEnvironmental(result);
     }
+    setBtnLoading(btn, false);
 }
 
-async function runHistoricalWeb() {
+async function runHistoricalWeb(btn) {
+    setBtnLoading(btn, true);
     const loc = getLocationData();
     const place = document.getElementById('input-place')?.value || '';
     const result = await apiGet(`/api/web/full?lat=${loc.lat}&lon=${loc.lon}&place_name=${encodeURIComponent(place)}`);
@@ -191,6 +215,7 @@ async function runHistoricalWeb() {
         document.querySelector('[data-tab="analysis"]')?.click();
         displayWebArchives(result);
     }
+    setBtnLoading(btn, false);
 }
 
 // ─── DISPLAY RESULTS ─────────────────────────────────
@@ -237,33 +262,168 @@ function displayFullScanResults(data) {
         </div>
     `;
 
+loadEnvPanel(data);
+    loadWebArchivePanel(data);
+    loadArchDBPanel(data);
+    loadWeatherPanel(data);
+    loadHistoricalMapsPanel(data);
+    loadSignalsPanels(data);
+}
+
+function loadEnvPanel(data) {
     const env = data.environmental || {};
+    let html = '';
     if (env.soil?.properties) {
-        let soilHTML = '<div class="finding-card info"><strong>SOIL</strong></div>';
+        html += '<div class="finding-card info"><strong>SOIL</strong></div>';
         for (const [k, v] of Object.entries(env.soil.properties)) {
-            soilHTML += `<span class="metric"><span class="value">${v.value ?? v}</span><span class="label">${k}</span></span>`;
+            html += `<span class="metric"><span class="value">${v.value ?? v}</span><span class="label">${k}</span></span>`;
         }
-        document.getElementById('env-content').innerHTML = soilHTML;
     }
+    if (env.faults?.features?.length) {
+        html += `<div class="finding-card info"><strong>SEISMIC</strong> — ${env.faults.features.length} events nearby</div>`;
+    }
+    if (env.population?.density) {
+        html += `<div class="finding-card info"><strong>POPULATION</strong> — ${env.population.density} / km²</div>`;
+    }
+    if (env.water_table) {
+        html += `<div class="finding-card info"><strong>WATER TABLE</strong> — ${env.water_table.water_table || env.water_table.estimate || 'estimated'}</div>`;
+    }
+    const el = document.getElementById('env-content');
+    if (el) el.innerHTML = html || '<div class="empty-state">No environmental data</div>';
+}
 
+function loadWebArchivePanel(data) {
     const web = data.historical_web || {};
+    let html = '';
     if (web.wayback?.count) {
-        document.getElementById('webarchive-content').innerHTML = `<div class="finding-card info"><strong>WAYBACK MACHINE</strong> — ${web.wayback.count} archives</div>`;
+        html += `<div class="finding-card info"><strong>WAYBACK MACHINE</strong> — ${web.wayback.count} archives</div>`;
+        (web.wayback.results || []).slice(0, 5).forEach(r => {
+            html += `<div class="finding-card info" style="margin-left:12px;font-size:11px;"><a href="${r.url || r.archived || r}" target="_blank" style="color:var(--accent)">${r.url || r.archived || r}</a></div>`;
+        });
     }
+    if (web.osm?.historic_features?.length) {
+        html += `<div class="finding-card info"><strong>OSM HISTORIC</strong> — ${web.osm.historic_features.length} features</div>`;
+    }
+    document.getElementById('webarchive-content').innerHTML = html || '<div class="empty-state">No web archives found</div>';
+}
 
+function loadArchDBPanel(data) {
     const arch = data.archaeological_db || {};
+    let html = '';
     if (arch.pleiades?.places) {
-        document.getElementById('archdb-content').innerHTML = `<div class="finding-card info"><strong>ARCHAEOLOGICAL SITES</strong> — ${arch.pleiades.count || arch.pleiades.places.length} nearby</div>`;
+        html += `<div class="finding-card info"><strong>ANCIENT SITES (Pleiades)</strong> — ${arch.pleiades.count || arch.pleiades.places.length} nearby</div>`;
+        arch.pleiades.places.slice(0, 5).forEach(p => {
+            html += `<div class="finding-card info" style="margin-left:12px;font-size:11px;">${p.title} (${p.distance_km}km)</div>`;
+        });
     }
+    if (arch.wikidata?.sites) {
+        html += `<div class="finding-card info"><strong>ARCHAEOLOGICAL SITES (Wikidata)</strong> — ${arch.wikidata.count || arch.wikidata.sites.length} nearby</div>`;
+        arch.wikidata.sites.slice(0, 5).forEach(s => {
+            html += `<div class="finding-card info" style="margin-left:12px;font-size:11px;">${s.name} (${s.distance_km}km)</div>`;
+        });
+    }
+    if (arch.gbif?.species) {
+        html += `<div class="finding-card info"><strong>SPECIES (GBIF)</strong> — ${arch.gbif.count || arch.gbif.species.length} observations</div>`;
+    }
+    if (arch.magnetic?.total_intensity_nt) {
+        html += `<div class="finding-card info"><strong>MAGNETIC FIELD</strong> — ${arch.magnetic.total_intensity_nt.toFixed(0)} nT</div>`;
+    }
+    if (arch.nighttime_lights?.granules) {
+        html += `<div class="finding-card info"><strong>NIGHTTIME LIGHTS</strong> — ${arch.nighttime_lights.granules} VIIRS granules</div>`;
+    }
+    document.getElementById('archdb-content').innerHTML = html || '<div class="empty-state">Run Full Spectrum Scan for archaeological data</div>';
+}
 
+function loadWeatherPanel(data) {
     const weather = data.space_weather || {};
     if (weather.interpretation) {
         document.getElementById('weather-content').innerHTML = `<div class="finding-card info">${weather.interpretation.map(i => `<div>${i}</div>`).join('')}</div>`;
+    } else if (weather.data?.length) {
+        const sw = weather.data[0];
+        document.getElementById('weather-content').innerHTML = `<div class="finding-card info">Solar wind: ${sw.speed} km/s, Density: ${sw.density} p/cm³</div>`;
     }
+}
 
+function loadHistoricalMapsPanel(data) {
     const maps = data.historical_maps || [];
     if (maps.length > 0) {
         document.getElementById('maps-content').innerHTML = maps.map(m => `<div class="finding-card info"><strong>${m.name || m.source || 'Map'}</strong><br><a href="${m.url || m.link || '#'}" target="_blank" style="color:var(--accent)">${m.url || m.link || 'View'}</a></div>`).join('');
+    }
+}
+
+// ─── SIGNALS PANEL LOADERS ──────────────────────────────────
+async function loadMagneticField(lat, lon, radius_m) {
+    const el = document.getElementById('spectrum-chart');
+    if (!el) return;
+    el.innerHTML = '<div class="empty-state">Loading magnetic field data...</div>';
+    const result = await apiGet(`/api/signal/magnetic-gradient?lat=${lat}&lon=${lon}&radius_m=${radius_m}`);
+    if (result) {
+        if (result.error) {
+            el.innerHTML = `<div class="finding-card warning">${result.error}</div>`;
+        } else {
+            const profile = result.profile || [];
+            const distances = profile.map((p, i) => i * (radius_m || 500) / Math.max(profile.length - 1, 1));
+            const values = profile.map(p => p.total_intensity_nt ?? p.total_nT ?? p);
+            Plotly.newPlot(el, [{
+                x: distances, y: values, name: 'Magnetic Field',
+                line: { color: '#7b68ee', width: 2 }, fill: 'tozeroy', fillcolor: 'rgba(123,104,238,0.1)',
+            }], {
+                paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
+                font: { color: '#4a5a6a', size: 10 }, margin: { t: 20, r: 40, b: 30, l: 50 },
+                xaxis: { title: 'Distance (m)', gridcolor: 'rgba(255,255,255,0.03)' },
+                yaxis: { title: 'nT', gridcolor: 'rgba(255,255,255,0.03)' },
+            }, { responsive: true, displayModeBar: false });
+        }
+    }
+}
+
+async function loadSARBackscatter(lat, lon, radius_m, start_date) {
+    const el = document.getElementById('em-field-chart');
+    if (!el) return;
+    el.innerHTML = '<div class="empty-state">Loading SAR data...</div>';
+    const result = await apiGet(`/api/sar/backscatter?lat=${lat}&lon=${lon}&radius_m=${radius_m}&start_date=${start_date}`);
+    if (result) {
+        if (result.error) {
+            el.innerHTML = `<div class="finding-card warning">${result.error}</div>`;
+        } else {
+            const vv = result.vv || result.timeseries?.map(t => t.vv) || [];
+            const vh = result.vh || result.timeseries?.map(t => t.vh) || [];
+            const dates = result.dates || result.timeseries?.map(t => t.date) || vv.map((_, i) => i);
+            const traces = [];
+            if (vv.length) traces.push({ x: dates, y: vv, name: 'VV', line: { color: '#00f0ff', width: 2 } });
+            if (vh.length) traces.push({ x: dates, y: vh, name: 'VH', line: { color: '#ff6b4a', width: 2 } });
+            Plotly.newPlot(el, traces, {
+                paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
+                font: { color: '#4a5a6a', size: 10 }, margin: { t: 20, r: 40, b: 30, l: 50 },
+                showlegend: traces.length > 1,
+                xaxis: { gridcolor: 'rgba(255,255,255,0.03)' },
+                yaxis: { title: 'dB', gridcolor: 'rgba(255,255,255,0.03)' },
+            }, { responsive: true, displayModeBar: false });
+        }
+    }
+}
+
+async function loadRadioData(lat, lon) {
+    const el = document.getElementById('radio-chart');
+    if (!el) return;
+    el.innerHTML = '<div class="empty-state">Loading solar radiation data...</div>';
+    const result = await apiGet(`/api/data/radio-astronomy?lat=${lat}&lon=${lon}`);
+    if (result) {
+        if (result.error) {
+            el.innerHTML = `<div class="finding-card warning">${result.error}</div>`;
+        } else {
+            const irradiance = result.irradiance || result.solar_radiation || result.daily || [];
+            const dates = result.dates || irradiance.map((_, i) => i);
+            Plotly.newPlot(el, [{
+                x: dates, y: irradiance, name: 'Solar Irradiance',
+                line: { color: '#ffa726', width: 2 }, fill: 'tozeroy', fillcolor: 'rgba(255,167,38,0.1)',
+            }], {
+                paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
+                font: { color: '#4a5a6a', size: 10 }, margin: { t: 20, r: 40, b: 30, l: 50 },
+                xaxis: { gridcolor: 'rgba(255,255,255,0.03)' },
+                yaxis: { title: 'W/m²', gridcolor: 'rgba(255,255,255,0.03)' },
+            }, { responsive: true, displayModeBar: false });
+        }
     }
 }
 
@@ -648,13 +808,15 @@ async function generateTerrain() {
 }
 
 // ─── AI ANALYST ──────────────────────────────────────
-async function runGeminiAnalysis() {
+async function runGeminiAnalysis(btn) {
+    setBtnLoading(btn, true);
     const loc = getLocationData();
     const status = document.getElementById('ai-status');
     if (status) status.innerHTML = 'Running AI analysis...';
     const result = await apiPost('/api/gemini/analyze', loc);
     if (result?.error) {
         if (status) status.innerHTML = `<span style="color:#ff4444">${result.error}</span>`;
+        setBtnLoading(btn, false);
         return;
     }
     document.querySelector('[data-tab="ai"]')?.click();
@@ -674,9 +836,11 @@ async function runGeminiAnalysis() {
         `;
     }
     if (status) status.innerHTML = 'Analysis complete';
+    setBtnLoading(btn, false);
 }
 
-async function runGeminiReport() {
+async function runGeminiReport(btn) {
+    setBtnLoading(btn, true);
     const loc = getLocationData();
     const status = document.getElementById('ai-status');
     if (status) status.innerHTML = 'Generating field report...';
@@ -684,6 +848,7 @@ async function runGeminiReport() {
     const result = await apiPost(`/api/gemini/report?location_name=${encodeURIComponent(place)}`, loc);
     if (result?.error) {
         if (status) status.innerHTML = `<span style="color:#ff4444">${result.error}</span>`;
+        setBtnLoading(btn, false);
         return;
     }
     const el = document.getElementById('ai-result');
@@ -691,9 +856,11 @@ async function runGeminiReport() {
         el.innerHTML = `<div style="padding:12px;font-size:13px;line-height:1.7;"><h3 style="color:#c8a87c;margin-bottom:12px;">Field Report</h3>${formatMarkdown(result?.report || result?.text || JSON.stringify(result))}</div>`;
     }
     if (status) status.innerHTML = 'Report generated';
+    setBtnLoading(btn, false);
 }
 
-async function loadHistoricalContext() {
+async function loadHistoricalContext(btn) {
+    setBtnLoading(btn, true);
     const loc = getLocationData();
     const status = document.getElementById('ai-status');
     if (status) status.innerHTML = 'Loading historical context...';
@@ -701,6 +868,7 @@ async function loadHistoricalContext() {
     const result = await apiGet(`/api/gemini/history?lat=${loc.lat}&lon=${loc.lon}&name=${encodeURIComponent(place)}`);
     if (result?.error) {
         if (status) status.innerHTML = `<span style="color:#ff4444">${result.error}</span>`;
+        setBtnLoading(btn, false);
         return;
     }
     const el = document.getElementById('ai-result');
@@ -708,15 +876,18 @@ async function loadHistoricalContext() {
         el.innerHTML = `<div style="padding:12px;font-size:13px;line-height:1.7;"><h3 style="color:#c8a87c;margin-bottom:12px;">Historical Context</h3>${formatMarkdown(result?.context || result?.text || result?.timeline || JSON.stringify(result))}</div>`;
     }
     if (status) status.innerHTML = 'Context loaded';
+    setBtnLoading(btn, false);
 }
 
-async function runInvestigationPlan() {
+async function runInvestigationPlan(btn) {
+    setBtnLoading(btn, true);
     const loc = getLocationData();
     const status = document.getElementById('ai-status');
     if (status) status.innerHTML = 'Creating investigation plan...';
     const result = await apiPost('/api/gemini/investigate', loc);
     if (result?.error) {
         if (status) status.innerHTML = `<span style="color:#ff4444">${result.error}</span>`;
+        setBtnLoading(btn, false);
         return;
     }
     const el = document.getElementById('ai-result');
@@ -724,6 +895,7 @@ async function runInvestigationPlan() {
         el.innerHTML = `<div style="padding:12px;font-size:13px;line-height:1.7;"><h3 style="color:#c8a87c;margin-bottom:12px;">Investigation Plan</h3>${formatMarkdown(result?.plan || result?.text || JSON.stringify(result))}</div>`;
     }
     if (status) status.innerHTML = 'Plan ready';
+    setBtnLoading(btn, false);
 }
 
 async function sendChat() {
@@ -844,5 +1016,6 @@ document.querySelectorAll('.nav-btn').forEach(btn => {
         document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
         if (btn.dataset.tab === 'analysis') loadLatestScan();
         if (btn.dataset.tab === 'history') loadHistory();
+        if (btn.dataset.tab === 'signals') loadSignalsPanels(_lastScanData || getLocationData());
     });
 });
