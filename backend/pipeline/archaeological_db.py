@@ -1,4 +1,5 @@
 """CHRONOVISOR - Archaeological Database Layer"""
+import os
 import requests, math, concurrent.futures
 from datetime import datetime
 
@@ -97,7 +98,8 @@ class ArchaeologicalDB:
 
     def lidar_dem(self, lat, lon):
         try:
-            resp = self.session.get("https://portal.opentopography.org/api/globaldem", params={"demType":"SRTMGL1","south":str(lat-0.005),"north":str(lat+0.005),"west":str(lon-0.005),"east":str(lon+0.005),"outputFormat":"JSON","API_Key":"demoapikeyot2018"}, timeout=20)
+            api_key = os.environ.get("OPENTOPOGRAPHY_API_KEY", "demoapikeyot2018")
+            resp = self.session.get("https://portal.opentopography.org/api/globaldem", params={"demType":"SRTMGL1","south":str(lat-0.005),"north":str(lat+0.005),"west":str(lon-0.005),"east":str(lon+0.005),"outputFormat":"JSON","API_Key":api_key}, timeout=20)
             if resp.status_code==200: return {"source":"OpenTopography","available":True,"interpretation":["High-res DEM available."]}
             return {"source":"OpenTopography","available":False,"interpretation":["No LIDAR coverage. SRTM 30m used."]}
         except Exception as e: return {"error": str(e)}

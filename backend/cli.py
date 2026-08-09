@@ -92,11 +92,11 @@ def _check_deps():
     """Check if all required packages are installed."""
     required = [
         "fastapi", "uvicorn", "numpy", "scipy", "requests",
-        "pydantic", "PIL", "cv2", "google.generativeai",
+        "pydantic", "httpx",
     ]
     optional = [
         ("ee", "Google Earth Engine"),
-        ("librosa", "Audio processing"),
+        ("google.genai", "Google Gemini SDK"),
     ]
 
     print("  Checking dependencies...\n")

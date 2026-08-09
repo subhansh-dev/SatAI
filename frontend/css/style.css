@@ -819,13 +819,70 @@ header.scrolled {
 .signals-layout {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    grid-template-rows: 1fr 1fr;
+    grid-template-rows: auto 1fr;
     gap: 2px;
     padding: 2px;
-    height: 100%;
+    height: calc(100vh - 52px);
+    overflow-y: auto;
+    align-content: start;
     background: rgba(200, 168, 124, 0.02);
 }
 .signals-layout .panel-wide { grid-column: 1 / -1; }
+
+/* ═══════ SIGNAL DESCRIPTION BARS ═══════ */
+.signal-desc-bar {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    border-bottom: 1px solid rgba(200, 168, 124, 0.08);
+    background: rgba(0, 0, 0, 0.15);
+}
+.signal-desc-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px 16px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    line-height: 1.6;
+    color: var(--text-secondary);
+    border-bottom: 1px solid rgba(200, 168, 124, 0.04);
+}
+.signal-desc-item:last-child { border-bottom: none; }
+.signal-desc-icon {
+    flex-shrink: 0;
+    color: var(--accent-dim);
+    margin-top: 1px;
+}
+.signal-desc-text {
+    flex: 1;
+}
+.signal-desc-good {
+    background: rgba(200, 168, 124, 0.02);
+}
+.signal-desc-tag {
+    flex-shrink: 0;
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    color: var(--accent);
+    background: rgba(200, 168, 124, 0.1);
+    border: 1px solid rgba(200, 168, 124, 0.2);
+    padding: 2px 8px;
+    border-radius: var(--radius-sm);
+    white-space: nowrap;
+}
+
+/* Signal interpretation bar below charts */
+.signal-interp {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-secondary);
+    padding: 8px 16px;
+    border-top: 1px solid rgba(200, 168, 124, 0.08);
+    background: rgba(200, 168, 124, 0.02);
+    line-height: 1.6;
+}
 
 /* ═══════ ANOMALY BADGES ═══════ */
 .anomaly-badge {

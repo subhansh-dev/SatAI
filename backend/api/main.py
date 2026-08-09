@@ -7,7 +7,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from fastapi import FastAPI, Query, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, FileResponse, JSONResponse, PlainTextResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
@@ -15,6 +15,7 @@ import numpy as np
 import json
 from collections import defaultdict
 import time as _time
+from datetime import datetime, timezone
 
 from pipeline.satellite_engine import SatelliteEngine
 from pipeline.signal_processor import SignalProcessor
@@ -209,41 +210,185 @@ async def satellite_spectral(req: LocationRequest):
 @app.post("/api/signal/analyze")
 async def signal_analyze(req: SignalRequest):
     if not req.frequencies or not req.amplitudes:
-        sr = req.sample_rate or 44100
-        t = np.linspace(0, 1.0, sr, endpoint=False)
-        signal = (
-            0.5 * np.sin(2 * np.pi * 120 * t)
-            + 0.3 * np.sin(2 * np.pi * 360 * t)
-            + 0.15 * np.sin(2 * np.pi * 840 * t)
-            + 0.05 * np.random.randn(len(t))
-        )
-        result = signal_proc.analyze_spectrum(signal, sample_rate=sr)
-        result["demo_mode"] = True
-        result["demo_description"] = "Demo: 120Hz fundamental + 360Hz + 840Hz harmonics"
-        return safe_json(result)
+        return {"error": "No signal data provided. Send frequencies and amplitudes arrays.", "required": {"frequencies": [100, 200, 300], "amplitudes": [0.5, 0.3, 0.1], "sample_rate": 44100}}
     return safe_json(signal_proc.analyze_spectrum(np.array(req.amplitudes), sample_rate=req.sample_rate))
 
 
 @app.post("/api/signal/em-field")
-async def em_field(req: SignalRequest):
-    grid_size = 50
-    x = np.linspace(0, 1, grid_size)
-    y = np.linspace(0, 1, grid_size)
-    xx, yy = np.meshgrid(x, y)
-    field = (
-        0.4 * np.exp(-((xx - 0.3) ** 2 + (yy - 0.4) ** 2) / 0.02)
-        + 0.6 * np.exp(-((xx - 0.7) ** 2 + (yy - 0.6) ** 2) / 0.03)
-        + 0.2 * np.exp(-((xx - 0.5) ** 2 + (yy - 0.2) ** 2) / 0.01)
-        + 0.05 * np.random.rand(grid_size, grid_size)
+async def em_field(lat: float = 28.6139, lon: float = 77.2090, radius_m: int = 500, grid_res: int = 10):
+    """Real EM field map from NOAA WMM magnetic intensity grid."""
+    import concurrent.futures
+    from scipy.interpolate import griddata
+
+    grid_res = min(max(grid_res, 5), 20)
+    deg_step_lat = (radius_m / 111320)
+    deg_step_lon = (radius_m / (111320 * max(np.cos(np.radians(lat)), 0.01)))
+
+    lats = np.linspace(lat - deg_step_lat, lat + deg_step_lat, grid_res)
+    lons = np.linspace(lon - deg_step_lon, lon + deg_step_lon, grid_res)
+
+    def fetch_mag(lat_val, lon_val):
+        try:
+            r = arch_db.magnetic_anomaly(lat_val, lon_val)
+            ti = r.get("total_intensity_nt")
+            if ti is not None:
+                return (lat_val, lon_val, float(ti))
+        except Exception:
+            pass
+        return None
+
+    points = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
+        futures = {ex.submit(fetch_mag, lt, ln): (lt, ln) for lt in lats for ln in lons}
+        for f in concurrent.futures.as_completed(futures):
+            result = f.result()
+            if result:
+                points.append(result)
+
+    if len(points) < 4:
+        return {"error": f"Not enough magnetic data points ({len(points)}/{grid_res*grid_res}). Try a different location."}
+
+    pts_lat = np.array([p[0] for p in points])
+    pts_lon = np.array([p[1] for p in points])
+    pts_val = np.array([p[2] for p in points])
+
+    grid_lat = np.linspace(pts_lat.min(), pts_lat.max(), grid_res)
+    grid_lon = np.linspace(pts_lon.min(), pts_lon.max(), grid_res)
+    grid_xx, grid_yy = np.meshgrid(grid_lon, grid_lat)
+
+    field = griddata(
+        np.column_stack([pts_lon, pts_lat]),
+        pts_val,
+        (grid_xx, grid_yy),
+        method="cubic",
+        fill_value=float(np.mean(pts_val)),
     )
+
+    hotspots = []
+    for i in range(field.shape[0]):
+        for j in range(field.shape[1]):
+            val = field[i, j]
+            neighbors = field[max(0,i-1):min(field.shape[0],i+2), max(0,j-1):min(field.shape[1],j+2)]
+            if val == np.max(neighbors) and val > np.mean(pts_val) + np.std(pts_val):
+                hotspots.append({"lat": float(grid_lat[i]), "lon": float(grid_lon[j]), "intensity_nt": round(float(val), 1)})
+
+    interpretation = []
+    gradient = float(np.max(field) - np.min(field))
+    if gradient > 100:
+        interpretation.append(f"High magnetic gradient ({gradient:.0f} nT) — possible buried ferrous structures or geological contact")
+    elif gradient > 50:
+        interpretation.append(f"Moderate gradient ({gradient:.0f} nT) — subsurface variation detected")
+    else:
+        interpretation.append(f"Low gradient ({gradient:.0f} nT) — magnetically uniform area")
+
     return safe_json({
-        "grid_size": grid_size,
+        "source": "NOAA WMM",
+        "location": {"lat": lat, "lon": lon, "radius_m": radius_m},
+        "grid_size": grid_res,
         "field_values": field.tolist(),
-        "hotspot_count": 3,
-        "max_intensity": round(float(np.max(field)), 4),
-        "mean_intensity": round(float(np.mean(field)), 4),
-        "demo_mode": True,
-        "demo_description": "Demo EM field with 3 simulated hotspots",
+        "hotspots": hotspots,
+        "hotspot_count": len(hotspots),
+        "max_intensity": round(float(np.max(field)), 1),
+        "min_intensity": round(float(np.min(field)), 1),
+        "mean_intensity": round(float(np.mean(field)), 1),
+        "gradient_nt": round(gradient, 1),
+        "data_points": len(points),
+        "interpretation": interpretation,
+    })
+
+
+@app.get("/api/signal/fft")
+async def signal_fft(lat: float = 28.6139, lon: float = 77.2090, radius_m: int = 500):
+    """Real FFT analysis of spatial magnetic field variation along a transect."""
+    import concurrent.futures
+
+    n_samples = 64
+    deg_step_lat = (radius_m / 111320)
+    deg_step_lon = (radius_m / (111320 * max(np.cos(np.radians(lat)), 0.01)))
+
+    transect_lats = np.linspace(lat - deg_step_lat, lat + deg_step_lat, n_samples)
+    transect_lons = np.full(n_samples, lon)
+    transect_dists = np.linspace(-radius_m, radius_m, n_samples)
+
+    def fetch_mag(lat_val):
+        try:
+            r = arch_db.magnetic_anomaly(lat_val, lon)
+            ti = r.get("total_intensity_nt")
+            if ti is not None:
+                return float(ti)
+        except Exception:
+            pass
+        return None
+
+    readings = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
+        futures = {ex.submit(fetch_mag, lt): i for i, lt in enumerate(transect_lats)}
+        results = [None] * n_samples
+        for f in concurrent.futures.as_completed(futures):
+            idx = futures[f]
+            val = f.result()
+            if val is not None:
+                results[idx] = val
+
+    valid = [(transect_dists[i], results[i]) for i in range(n_samples) if results[i] is not None]
+    if len(valid) < 8:
+        return {"error": f"Not enough magnetic data points ({len(valid)}/{n_samples}). Try a different location."}
+
+    distances = np.array([v[0] for v in valid])
+    values = np.array([v[1] for v in valid])
+
+    mean_val = np.mean(values)
+    detrended = values - mean_val
+
+    fft_result = np.fft.rfft(detrended)
+    freqs = np.fft.rfftfreq(len(detrended), d=(distances[1] - distances[0]) if len(distances) > 1 else 1.0)
+    mags = np.abs(fft_result)
+
+    if len(freqs) > 1:
+        sampling_interval = distances[1] - distances[0]
+        spatial_freqs = freqs[1:]
+        spatial_mags = mags[1:]
+    else:
+        spatial_freqs = np.array([])
+        spatial_mags = np.array([])
+
+    dominant = []
+    if len(spatial_mags) > 0:
+        sorted_idx = np.argsort(spatial_mags)[::-1]
+        for i in sorted_idx[:3]:
+            if spatial_mags[i] > np.mean(spatial_mags) * 2:
+                period_m = 1.0 / spatial_freqs[i] if spatial_freqs[i] > 0 else float('inf')
+                dominant.append({
+                    "frequency": round(float(spatial_freqs[i]), 4),
+                    "magnitude": round(float(spatial_mags[i]), 2),
+                    "period_m": round(float(period_m), 1),
+                })
+
+    patterns = signal_proc._detect_patterns(detrended, sample_rate=1000)
+
+    interpretation = []
+    if dominant:
+        interpretation.append(f"{len(dominant)} dominant spatial frequency peaks detected")
+        for d in dominant:
+            interpretation.append(f"  Period {d['period_m']}m (freq {d['frequency']} cycles/m) — magnitude {d['magnitude']}")
+    if patterns.get("harmonics"):
+        interpretation.append(f"Harmonic series detected ({patterns.get('harmonics_count', '?')} harmonics)")
+    if patterns.get("periodic"):
+        interpretation.append(f"Periodic signal detected — period: {patterns.get('period', '?')} samples")
+    if not interpretation:
+        interpretation.append("No significant spatial frequency patterns — magnetically uniform transect")
+
+    return safe_json({
+        "source": "NOAA WMM",
+        "location": {"lat": lat, "lon": lon, "radius_m": radius_m},
+        "transect": {"distances": distances.tolist(), "values": values.tolist()},
+        "fft": {"frequencies": spatial_freqs.tolist(), "magnitudes": spatial_mags.tolist()},
+        "dominant_frequencies": dominant,
+        "mean_intensity_nt": round(float(mean_val), 1),
+        "gradient_nt": round(float(np.max(values) - np.min(values)), 1),
+        "data_points": len(valid),
+        "patterns": patterns,
+        "interpretation": interpretation,
     })
 
 
@@ -851,9 +996,6 @@ async def mega_scan(
     return result
 
 
-from datetime import datetime
-
-
 @app.get("/api/export/report")
 async def export_report(lat: float, lon: float, place_name: str = "", format: str = "html"):
     scan = None
@@ -904,7 +1046,7 @@ th{background:#1a5c3a;color:white;font-size:12px;letter-spacing:1px;}
 </style></head><body>
 <h1>CHRONOVISOR Archaeological Report</h1>
 <p><strong>Location:</strong> """ + str(place_name or f"{lat}, {lon}") + """ (""" + str(lat) + """, """ + str(lon) + """)</p>
-<p><strong>Date:</strong> """ + datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC") + """</p>
+<p><strong>Date:</strong> """ + datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC") + """</p>
 <p><strong>Scan Radius:</strong> """ + str(target.get("radius_m", 500)) + """m</p>
 <p><strong>Data Points:</strong> """ + str(scan.get("satellite", {}).get("data_points", 0)) + """ satellite observations</p>
 
@@ -1014,17 +1156,67 @@ async def get_history_scan(index: int):
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
+    ws_sessions = {}
     try:
         while True:
             data = await websocket.receive_text()
             msg = json.loads(data)
             if msg.get("type") == "chat":
-                result = await gemini.chat(msg.get("message", ""), msg.get("context"))
+                session_id = msg.get("session_id", "ws_default")
+                if session_id not in ws_sessions:
+                    ws_sessions[session_id] = []
+                scan_context = None
+                scan_idx = msg.get("scan_index")
+                if scan_idx is not None and 0 <= scan_idx < len(scan_history):
+                    scan_context = scan_history[scan_idx].get("result", {})
+                elif scan_history:
+                    scan_context = scan_history[-1].get("result", {})
+                result = await gemini.chat(msg.get("message", ""), scan_context, ws_sessions[session_id])
+                if "reply" in result:
+                    ws_sessions[session_id].append({"role": "user", "content": msg.get("message", "")})
+                    ws_sessions[session_id].append({"role": "assistant", "content": result["reply"]})
+                    ws_sessions[session_id] = ws_sessions[session_id][-20:]
                 await websocket.send_json(result)
             elif msg.get("type") == "ping":
                 await websocket.send_json({"type": "pong"})
     except WebSocketDisconnect:
         pass
+
+
+@app.post("/api/gemini/interpret-signal")
+async def interpret_signal(signal_data: dict = {}, spectral_data: dict = {}):
+    if not gemini.initialized:
+        return {"error": "LLM not initialized"}
+    return await gemini.interpret_signal_patterns(signal_data, spectral_data)
+
+
+@app.post("/api/gemini/interpret-environmental")
+async def interpret_environmental(req_env_data: dict = {}):
+    if not gemini.initialized:
+        return {"error": "LLM not initialized"}
+    return await gemini.interpret_environmental(req_env_data)
+
+
+@app.post("/api/gemini/synthesize-crossref")
+async def synthesize_crossref(data: dict = {}):
+    if not gemini.initialized:
+        return {"error": "LLM not initialized"}
+    return await gemini.synthesize_crossref(
+        pleiades=data.get("pleiades", {}),
+        wikidata=data.get("wikidata", {}),
+        gbif=data.get("gbif", {}),
+        magnetic=data.get("magnetic", {}),
+        other_db=data.get("other", {}),
+    )
+
+
+@app.get("/api/llm/status")
+async def llm_status():
+    return {
+        "initialized": gemini.initialized,
+        "provider": gemini.provider,
+        "model": gemini.model_name,
+    }
 
 
 def generate_summary(anomalies, structural, temporal, spectral):
