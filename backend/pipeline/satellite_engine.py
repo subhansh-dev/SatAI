@@ -29,10 +29,10 @@ class SatelliteEngine:
         try:
             creds_json = os.getenv("GOOGLE_APPLICATION_CONTENTS", "")
             if creds_json:
+                from google.oauth2 import service_account
                 creds_dict = json.loads(creds_json)
-                credentials = ee.ServiceAccountCredentials(
-                    creds_dict["client_email"],
-                    key_data=creds_dict["private_key"]
+                credentials = service_account.Credentials.from_service_account_info(
+                    creds_dict, scopes=["https://www.googleapis.com/auth/earthengine.readonly"]
                 )
                 ee.Initialize(credentials, project=self.project_id)
             elif self.project_id:
