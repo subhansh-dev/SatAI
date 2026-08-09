@@ -148,6 +148,17 @@ class AnomalyExplainRequest(BaseModel):
     context: Optional[Dict[str, Any]] = None
 
 
+class AIInterpretRequest(BaseModel):
+    signal_data: Optional[Dict[str, Any]] = {}
+    spectral_data: Optional[Dict[str, Any]] = {}
+    env_data: Optional[Dict[str, Any]] = {}
+    pleiades: Optional[Dict[str, Any]] = {}
+    wikidata: Optional[Dict[str, Any]] = {}
+    gbif: Optional[Dict[str, Any]] = {}
+    magnetic: Optional[Dict[str, Any]] = {}
+    other: Optional[Dict[str, Any]] = {}
+
+
 @app.get("/", response_class=HTMLResponse)
 async def root():
     index_path = frontend_dir / "index.html"
@@ -1191,38 +1202,47 @@ async def websocket_endpoint(websocket: WebSocket):
 
 
 @app.post("/api/gemini/interpret-signal")
-async def interpret_signal(signal_data: dict = {}, spectral_data: dict = {}):
+async def interpret_signal(req: AIInterpretRequest):
     if not gemini.initialized:
-        return {"error": "LLM not initialized"}
-    return await gemini.interpret_signal_patterns(signal_data, spectral_data)
+        return {"error": "LLM not initialized. Set LLM_PROVIDER and API key in .env"}
+    return await gemini.interpret_signal_patterns(req.signal_data, req.spectral_data)
 
 
 @app.post("/api/gemini/interpret-environmental")
-async def interpret_environmental(req_env_data: dict = {}):
+async def interpret_environmental(req: AIInterpretRequest):
     if not gemini.initialized:
-        return {"error": "LLM not initialized"}
-    return await gemini.interpret_environmental(req_env_data)
+        return {"error": "LLM not initialized. Set LLM_PROVIDER and API key in .env"}
+    return await gemini.interpret_environmental(req.env_data)
 
 
 @app.post("/api/gemini/synthesize-crossref")
-async def synthesize_crossref(data: dict = {}):
+async def synthesize_crossref(req: AIInterpretRequest):
     if not gemini.initialized:
-        return {"error": "LLM not initialized"}
+        return {"error": "LLM not initialized. Set LLM_PROVIDER and API key in .env"}
     return await gemini.synthesize_crossref(
-        pleiades=data.get("pleiades", {}),
-        wikidata=data.get("wikidata", {}),
-        gbif=data.get("gbif", {}),
-        magnetic=data.get("magnetic", {}),
-        other_db=data.get("other", {}),
+        pleiades=req.pleiades,
+        wikidata=req.wikidata,
+        gbif=req.gbif,
+        magnetic=req.magnetic,
+        other_db=req.other,
     )
 
 
 @app.get("/api/llm/status")
 async def llm_status():
+    import os
+    provider = gemini.provider
+    from pipeline.gemini_analyzer import PROVIDERS
+    cfg = PROVIDERS.get(provider, PROVIDERS["cerebras"])
+    env_val = os.getenv(cfg["env_key"], "")
     return {
         "initialized": gemini.initialized,
         "provider": gemini.provider,
         "model": gemini.model_name,
+        "env_key": cfg["env_key"],
+        "env_len": len(env_val),
+        "env_empty": not env_val,
+        "env_starts_your": env_val.startswith("your-"),
     }
 
 

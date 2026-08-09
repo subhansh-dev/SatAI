@@ -62,9 +62,11 @@ class GeminiAnalyzer:
         self.api_key = os.getenv(provider_cfg["env_key"], "")
         self.model_name = provider_cfg["model"]
         self.base_url = provider_cfg["base_url"]
+        print(f"[GeminiAnalyzer] provider={self.provider}, env_key={provider_cfg['env_key']}, key_len={len(self.api_key)}")
 
         if not self.api_key or self.api_key.startswith("your-"):
             self.initialized = False
+            print(f"[GeminiAnalyzer] init FAILED: no API key for {provider_cfg['env_key']}")
             return
 
         if self.provider == "gemini":
