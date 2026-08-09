@@ -168,6 +168,29 @@ async def health():
     }
 
 
+@app.get("/api/debug/gee")
+async def debug_gee():
+    import os, json as _json
+    creds = os.getenv("GOOGLE_APPLICATION_CONTENTS", "")
+    project = os.getenv("GEE_PROJECT_ID", "")
+    ee_available = False
+    ee_error = None
+    try:
+        import ee
+        ee_available = True
+    except ImportError as e:
+        ee_error = f"ImportError: {e}"
+
+    return {
+        "gee_project_id": project,
+        "has_credentials": bool(creds),
+        "credentials_length": len(creds),
+        "ee_module_available": ee_available,
+        "ee_import_error": ee_error,
+        "satellite_initialized": satellite.initialized,
+    }
+
+
 @app.post("/api/satellite/timeseries")
 async def satellite_timeseries(req: LocationRequest):
     return satellite.get_satellite_timeseries(
