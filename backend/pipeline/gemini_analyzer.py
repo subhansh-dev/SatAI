@@ -49,7 +49,7 @@ PROVIDERS = {
 
 class GeminiAnalyzer:
     def __init__(self):
-        self.provider = os.getenv("LLM_PROVIDER", "cerebras")
+        self.provider = os.getenv("LLM_PROVIDER", "gemini")
         self.model_name = None
         self.api_key = None
         self.base_url = None
