@@ -40,8 +40,10 @@ class SatelliteEngine:
             else:
                 ee.Initialize()
             self.initialized = True
-        except Exception:
+            print("[SatelliteEngine] GEE initialized successfully")
+        except Exception as e:
             self.initialized = False
+            print(f"[SatelliteEngine] GEE init failed: {type(e).__name__}: {e}")
 
     def _gee_error(self, method: str, error: Exception = None) -> dict:
         msg = f"Google Earth Engine not connected. Cannot fetch {method} data."
