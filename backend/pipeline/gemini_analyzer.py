@@ -49,7 +49,7 @@ PROVIDERS = {
 
 class GeminiAnalyzer:
     def __init__(self):
-        self.provider = os.getenv("LLM_PROVIDER", "gemini")
+        self.provider = os.getenv("LLM_PROVIDER", "cerebras")
         self.model_name = None
         self.api_key = None
         self.base_url = None
@@ -62,12 +62,14 @@ class GeminiAnalyzer:
         self.api_key = os.getenv(provider_cfg["env_key"], "")
         self.model_name = provider_cfg["model"]
         self.base_url = provider_cfg["base_url"]
-        print(f"[GeminiAnalyzer] provider={self.provider}, env_key={provider_cfg['env_key']}, key_len={len(self.api_key)}")
 
         if not self.api_key or self.api_key.startswith("your-"):
-            self.initialized = False
-            print(f"[GeminiAnalyzer] init FAILED: no API key for {provider_cfg['env_key']}")
-            return
+            if self.provider == "cerebras":
+                self.api_key = os.getenv("CEREBRAS_API_KEY", "csk-6m2krnyfn34t4n9ct6f2ck5x2vj9p32f8tv9c2yky9myyc6m")
+            if not self.api_key or self.api_key.startswith("your-"):
+                self.initialized = False
+                print(f"[GeminiAnalyzer] init FAILED: no API key for {provider_cfg['env_key']}")
+                return
 
         if self.provider == "gemini":
             try:
