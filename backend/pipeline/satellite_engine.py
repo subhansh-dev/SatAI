@@ -3,7 +3,6 @@ from datetime import datetime, timedelta
 from typing import Optional
 import json
 import os
-import random
 
 try:
     import ee
@@ -28,7 +27,15 @@ class SatelliteEngine:
             self.project_id = project_id
 
         try:
-            if self.project_id:
+            creds_json = os.getenv("GOOGLE_APPLICATION_CONTENTS", "")
+            if creds_json:
+                creds_dict = json.loads(creds_json)
+                credentials = ee.ServiceAccountCredentials(
+                    creds_dict["client_email"],
+                    key_data=creds_dict["private_key"]
+                )
+                ee.Initialize(credentials, project=self.project_id)
+            elif self.project_id:
                 ee.Initialize(project=self.project_id)
             else:
                 ee.Initialize()
@@ -36,49 +43,13 @@ class SatelliteEngine:
         except Exception:
             self.initialized = False
 
-    def _mock_timeseries(self, lat: float, lon: float, source: str = "sentinel2") -> dict:
-        n_points = 36
-        base_date = datetime(2020, 1, 1)
-        timeseries = []
-        for i in range(n_points):
-            date = base_date + timedelta(days=i * 10)
-            ndvi_base = 0.4 + random.uniform(-0.05, 0.05)
-            moisture = 0.3 + random.uniform(-0.03, 0.03)
-            thermal = 2800 + random.uniform(-50, 50)
-
-            ndvi = ndvi_base + random.uniform(-0.15, 0.15)
-            if random.random() < 0.15:
-                ndvi = ndvi_base + 0.3
-
-            timeseries.append({
-                "date": date.strftime("%Y-%m-%d"),
-                "ndvi": round(ndvi, 4),
-                "moisture": round(moisture, 4),
-                "thermal": round(thermal, 2),
-                "ndbi": round(random.uniform(-0.2, 0.2), 4),
-                "bsi": round(random.uniform(-0.2, 0.2), 4),
-                "savi": round(ndvi_base * 1.5, 4),
-                "ndmi": round(random.uniform(-0.2, 0.2), 4),
-            })
-
-        anomalies = []
-        for t in timeseries:
-            if t["ndvi"] > 0.7:
-                anomalies.append({
-                    "type": "vegetation_anomaly",
-                    "date": t["date"],
-                    "value": t["ndvi"],
-                    "mean": 0.4,
-                    "deviation": round((t["ndvi"] - 0.4) / 0.1, 1),
-                    "interpretation": "Possible buried structure - vegetation stress pattern",
-                })
-
+    def _gee_error(self, method: str, error: Exception = None) -> dict:
+        msg = f"Google Earth Engine not connected. Cannot fetch {method} data."
+        if error:
+            msg += f" Error: {error}"
         return {
-            "location": {"lat": lat, "lon": lon},
-            "source": source + " (demo)",
-            "count": len(timeseries),
-            "timeseries": timeseries,
-            "_demo_mode": True,
+            "error": msg,
+            "hint": "Set GEE_PROJECT_ID in .env and run: earthengine authenticate",
         }
 
     def get_satellite_timeseries(
@@ -91,7 +62,7 @@ class SatelliteEngine:
         source: str = "sentinel2"
     ) -> dict:
         if not self.initialized:
-            return self._mock_timeseries(lat, lon, source)
+            return self._gee_error("satellite timeseries")
 
         if end_date is None:
             end_date = datetime.now().strftime("%Y-%m-%d")
@@ -192,7 +163,7 @@ class SatelliteEngine:
             }
 
         except Exception as e:
-            return self._mock_timeseries(lat, lon, source)
+            return self._gee_error("satellite timeseries", e)
 
     def detect_anomalies(self, timeseries: list) -> list:
         if len(timeseries) < 3:
@@ -236,12 +207,7 @@ class SatelliteEngine:
 
     def compute_spectral_indices(self, lat: float, lon: float, radius_m: int = 500) -> dict:
         if not self.initialized:
-            return {
-                "NDVI": {"mean": 0.45, "std": 0.12},
-                "NDWI": {"mean": 0.32, "std": 0.08},
-                "NDBI": {"mean": 0.05, "std": 0.06},
-                "interpretation": ["Demo mode - Earth Engine not connected"]
-            }
+            return self._gee_error("spectral indices")
 
         try:
             point = ee.Geometry.Point(lon, lat)
@@ -277,12 +243,8 @@ class SatelliteEngine:
                 "NDBI": {"mean": stats.get("NDBI_mean", 0), "std": stats.get("NDBI_stdDev", 0)},
                 "interpretation": self._interpret_indices(stats)
             }
-        except Exception:
-            return {
-                "NDVI": {"mean": 0.45, "std": 0.12},
-                "NDWI": {"mean": 0.32, "std": 0.08},
-                "NDBI": {"mean": 0.05, "std": 0.06},
-            }
+        except Exception as e:
+            return self._gee_error("spectral indices", e)
 
     def _interpret_indices(self, stats: dict) -> list:
         interpretations = []
@@ -310,7 +272,7 @@ class SatelliteEngine:
         end_date: Optional[str] = None,
     ) -> dict:
         if not self.initialized:
-            return self._mock_sar(lat, lon)
+            return self._gee_error("SAR backscatter")
 
         if end_date is None:
             end_date = datetime.now().strftime("%Y-%m-%d")
@@ -357,13 +319,8 @@ class SatelliteEngine:
                 "count": len(timeseries),
                 "timeseries": sorted(timeseries, key=lambda x: x["date"] or ""),
             }
-        except Exception:
-            return self._mock_sar(lat, lon)
-
-    def _mock_sar(self, lat: float, lon: float) -> dict:
-        dates = [(datetime(2020, 1, 1) + timedelta(days=i * 12)).strftime("%Y-%m-%d") for i in range(24)]
-        ts = [{"date": d, "vv": random.uniform(-15, -5), "vh": random.uniform(-20, -10), "ratio": random.uniform(2, 10)} for d in dates]
-        return {"location": {"lat": lat, "lon": lon}, "source": "sentinel1_sar (demo)", "count": len(ts), "timeseries": ts}
+        except Exception as e:
+            return self._gee_error("SAR backscatter", e)
 
     def ndvi_change_detection(
         self,
@@ -376,7 +333,7 @@ class SatelliteEngine:
         period2_end: str = "2024-12-31",
     ) -> dict:
         if not self.initialized:
-            return self._mock_ndvi_change()
+            return self._gee_error("NDVI change detection")
 
         try:
             point = ee.Geometry.Point(lon, lat)
@@ -428,14 +385,5 @@ class SatelliteEngine:
                 "pct_change": round(pct_change, 1),
                 "interpretation": interpretation,
             }
-        except Exception:
-            return self._mock_ndvi_change()
-
-    def _mock_ndvi_change(self) -> dict:
-        return {
-            "period1": {"ndvi": 0.42, "images": 12},
-            "period2": {"ndvi": 0.38, "images": 15},
-            "change": -0.04,
-            "pct_change": -9.5,
-            "interpretation": ["Vegetation decline detected - possible land use change"],
-        }
+        except Exception as e:
+            return self._gee_error("NDVI change detection", e)
