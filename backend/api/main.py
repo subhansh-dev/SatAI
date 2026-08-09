@@ -152,6 +152,7 @@ async def root():
 
 @app.get("/api/health")
 async def health():
+    satellite._ensure_init()
     return {
         "status": "operational",
         "version": "0.3.0",
