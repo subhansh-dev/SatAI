@@ -187,7 +187,7 @@ async def debug_gee():
             from google.oauth2 import service_account as sa
             
             creds_dict = _json.loads(creds)
-            scopes = ["https://www.googleapis.com/auth/earthengine"]
+            scopes = ["https://www.googleapis.com/auth/earthengine.readonly"]
             credentials = sa.Credentials.from_service_account_info(creds_dict, scopes=scopes)
             ee.Initialize(credentials=credentials, project=project)
             info["ee_init_success"] = True
@@ -196,6 +196,10 @@ async def debug_gee():
             info["ee_init_error"] = str(e)
             info["ee_init_traceback"] = traceback.format_exc()[-800:]
             info["ee_init_success"] = False
+    
+    # Try satellite engine init
+    satellite.initialize()
+    info["satellite_after_retry"] = satellite.initialized
     
     return info
 

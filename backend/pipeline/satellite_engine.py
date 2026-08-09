@@ -45,6 +45,12 @@ class SatelliteEngine:
             self.initialized = False
             print(f"[SatelliteEngine] GEE init failed: {type(e).__name__}: {e}")
 
+    def _ensure_init(self) -> bool:
+        if self.initialized:
+            return True
+        self.initialize()
+        return self.initialized
+
     def _gee_error(self, method: str, error: Exception = None) -> dict:
         msg = f"Google Earth Engine not connected. Cannot fetch {method} data."
         if error:
@@ -63,7 +69,7 @@ class SatelliteEngine:
         end_date: Optional[str] = None,
         source: str = "sentinel2"
     ) -> dict:
-        if not self.initialized:
+        if not self._ensure_init():
             return self._gee_error("satellite timeseries")
 
         if end_date is None:
@@ -208,7 +214,7 @@ class SatelliteEngine:
         return anomalies
 
     def compute_spectral_indices(self, lat: float, lon: float, radius_m: int = 500) -> dict:
-        if not self.initialized:
+        if not self._ensure_init():
             return self._gee_error("spectral indices")
 
         try:
@@ -273,7 +279,7 @@ class SatelliteEngine:
         start_date: str = "2020-01-01",
         end_date: Optional[str] = None,
     ) -> dict:
-        if not self.initialized:
+        if not self._ensure_init():
             return self._gee_error("SAR backscatter")
 
         if end_date is None:
@@ -334,7 +340,7 @@ class SatelliteEngine:
         period2_start: str = "2024-01-01",
         period2_end: str = "2024-12-31",
     ) -> dict:
-        if not self.initialized:
+        if not self._ensure_init():
             return self._gee_error("NDVI change detection")
 
         try:
