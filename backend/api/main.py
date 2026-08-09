@@ -168,42 +168,6 @@ async def health():
     }
 
 
-@app.get("/api/debug/gee")
-async def debug_gee():
-    import os, json as _json, traceback
-    creds = os.getenv("GOOGLE_APPLICATION_CONTENTS", "")
-    project = os.getenv("GEE_PROJECT_ID", "")
-    
-    info = {
-        "gee_project_id": project,
-        "has_credentials": bool(creds),
-        "credentials_length": len(creds),
-        "satellite_initialized": satellite.initialized,
-    }
-    
-    if creds and project:
-        try:
-            import ee
-            from google.oauth2 import service_account as sa
-            
-            creds_dict = _json.loads(creds)
-            scopes = ["https://www.googleapis.com/auth/earthengine.readonly"]
-            credentials = sa.Credentials.from_service_account_info(creds_dict, scopes=scopes)
-            ee.Initialize(credentials=credentials, project=project)
-            info["ee_init_success"] = True
-            info["ee_version"] = ee.__version__
-        except Exception as e:
-            info["ee_init_error"] = str(e)
-            info["ee_init_traceback"] = traceback.format_exc()[-800:]
-            info["ee_init_success"] = False
-    
-    # Try satellite engine init
-    satellite.initialize()
-    info["satellite_after_retry"] = satellite.initialized
-    
-    return info
-
-
 @app.post("/api/satellite/timeseries")
 async def satellite_timeseries(req: LocationRequest):
     return satellite.get_satellite_timeseries(
