@@ -91,6 +91,12 @@ app.mount("/static", StaticFiles(directory=str(frontend_dir)), name="static")
 HISTORY_FILE = Path(__file__).parent.parent.parent / "data" / "scan_history.json"
 
 
+@app.on_event("startup")
+async def startup_init():
+    satellite.initialize()
+    gemini.initialize()
+
+
 def _load_history():
     try:
         if HISTORY_FILE.exists():
