@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from dotenv import load_dotenv
 load_dotenv(Path(__file__).parent.parent.parent / ".env")
 
-from fastapi import FastAPI, Query, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Query, HTTPException, WebSocket, WebSocketDisconnect, Body
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -385,7 +385,7 @@ async def signal_fft(lat: float = 28.6139, lon: float = 77.2090, radius_m: int =
                     "period_m": round(float(period_m), 1),
                 })
 
-    patterns = signal_proc._detect_patterns(detrended, sample_rate=1000)
+    patterns = signal_proc._detect_patterns(detrended, np.abs(np.fft.rfft(detrended)), np.fft.rfftfreq(len(detrended), d=1.0))
 
     interpretation = []
     if dominant:
@@ -570,6 +570,9 @@ async def full_scan(lat: float = Query(...), lon: float = Query(...), radius_m: 
         "structural_analysis": structural,
         "temporal_changes": temporal,
         "spectral_indices": spectral_r,
+        "environmental": {},
+        "historical_web": {},
+        "archaeological_db": {},
         "space_weather": {"interpretation": space_weather_r.get("interpretation", []), "error": space_weather_r.get("error")},
         "lightning": {"strikes": lightning_r.get("strike_count"), "error": lightning_r.get("error"), "sources": lightning_r.get("sources")},
         "historical_maps": maps_r.get("available_sources", []),
@@ -809,7 +812,7 @@ async def arch_temporal(lat: float, lon: float):
 
 
 @app.post("/api/arch/batch")
-async def arch_batch(locations: list):
+async def arch_batch(locations: list = Body(...)):
     return safe_json(arch_db.batch_scan(locations))
 
 
@@ -920,6 +923,7 @@ async def mega_scan(
         maps_f = ex.submit(safe_call, ingestion.get_historical_maps, lat, lon)
         pleiades_f = ex.submit(safe_call, arch_db.pleiades_nearby, lat, lon, 50)
         wikidata_f = ex.submit(safe_call, arch_db.wikidata_sites, lat, lon, 50)
+        gbif_f = ex.submit(safe_call, arch_db.gbif_species, lat, lon, 50)
         nightlight_f = ex.submit(safe_call, arch_db.nighttime_lights, lat, lon)
         magnetic_f = ex.submit(safe_call, arch_db.magnetic_anomaly, lat, lon)
         climate_f = ex.submit(safe_call, arch_db.climate_data, lat, lon)
@@ -936,6 +940,7 @@ async def mega_scan(
     maps_r = maps_f.result()
     pleiades_r = pleiades_f.result()
     wikidata_r = wikidata_f.result()
+    gbif_r = gbif_f.result()
     nightlight_r = nightlight_f.result()
     magnetic_r = magnetic_f.result()
     climate_r = climate_f.result()
@@ -946,12 +951,12 @@ async def mega_scan(
         1
         for r in [
             soil_r, fault_r, water_r, pop_r, wayback_r, osm_r, weather_r,
-            pleiades_r, wikidata_r, nightlight_r, magnetic_r, climate_r,
+            pleiades_r, wikidata_r, gbif_r, nightlight_r, magnetic_r, climate_r,
             landcover_r, suitability_r,
         ]
         if isinstance(r, dict) and "error" not in r
     )
-    sources_total = 14
+    sources_total = 15
 
     fused = ai.fuse_all_data(
         structural=structural,
@@ -991,6 +996,7 @@ async def mega_scan(
         "archaeological_db": {
             "pleiades": pleiades_r,
             "wikidata": wikidata_r,
+            "gbif": gbif_r,
             "nighttime_lights": nightlight_r,
             "magnetic": magnetic_r,
             "climate": climate_r,

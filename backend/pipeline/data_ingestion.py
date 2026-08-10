@@ -170,10 +170,6 @@ class DataIngestion:
         elif count > 0:
             return ["Low lightning activity — minimal EM interference."]
         return ["No recent lightning — clean EM conditions for signal analysis."]
-            },
-            "recommendation": "Apply for WWLLN research access (free) or integrate Vaisala GLD360 API key."
-        }
-
     def get_radio_astronomy_archive(self, freq_mhz: float = 1420, lat: float = None, lon: float = None) -> dict:
         """
         Fetch real solar/EM environmental data from NASA POWER API.

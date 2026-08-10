@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: chronovisor
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn backend.api.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11"
+      - key: LLM_PROVIDER
+        value: "cerebras"
+      - key: CEREBRAS_API_KEY
+        sync: false
+      - key: GEE_PROJECT_ID
+        value: "chronovisor-498714"
+      - key: GOOGLE_APPLICATION_CONTENTS
+        sync: false
+      - key: CHRONOVISOR_PORT
+        value: "8500"
+      - key: CACHE_TTL
+        value: "3600"

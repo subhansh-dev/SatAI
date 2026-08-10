@@ -27,14 +27,32 @@ class SatelliteEngine:
             self.project_id = project_id
 
         try:
+            from google.oauth2 import service_account
+
+            creds = None
             creds_json = os.getenv("GOOGLE_APPLICATION_CONTENTS", "")
+            creds_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "")
+
             if creds_json:
-                from google.oauth2 import service_account
                 creds_dict = json.loads(creds_json)
-                credentials = service_account.Credentials.from_service_account_info(
+                creds = service_account.Credentials.from_service_account_info(
                     creds_dict, scopes=["https://www.googleapis.com/auth/earthengine.readonly"]
                 )
-                ee.Initialize(credentials, project=self.project_id)
+                print("[SatelliteEngine] Using inline service account credentials")
+            elif creds_path:
+                if not os.path.isabs(creds_path):
+                    base = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+                    creds_path = os.path.join(base, creds_path)
+                if os.path.exists(creds_path):
+                    creds = service_account.Credentials.from_service_account_file(
+                        creds_path, scopes=["https://www.googleapis.com/auth/earthengine.readonly"]
+                    )
+                    print(f"[SatelliteEngine] Using service account file: {creds_path}")
+                else:
+                    print(f"[SatelliteEngine] Credential file not found: {creds_path}")
+
+            if creds:
+                ee.Initialize(creds, project=self.project_id)
             elif self.project_id:
                 ee.Initialize(project=self.project_id)
             else:
@@ -337,9 +355,9 @@ class SatelliteEngine:
 
     def _interpret_indices(self, stats: dict) -> list:
         interpretations = []
-        ndvi = stats.get("NDVI_mean", 0) or 0
-        ndwi = stats.get("NDWI_mean", 0) or 0
-        ndbi = stats.get("NDBI_mean", 0) or 0
+        ndvi = stats.get("NDVI", stats.get("NDVI_mean", 0)) or 0
+        ndwi = stats.get("NDWI", stats.get("NDWI_mean", 0)) or 0
+        ndbi = stats.get("NDBI", stats.get("NDBI_mean", 0)) or 0
 
         if -0.1 < ndvi < 0.2:
             interpretations.append("Low vegetation - possible bare soil or rocky terrain")

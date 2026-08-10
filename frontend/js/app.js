@@ -151,7 +151,9 @@ function formatMarkdown(text) {
 }
 
 function getLatestScanIndex() {
-    return _lastScanData?._scanIndex ?? null;
+    const idx = _lastScanData?._scanIndex;
+    if (idx == null || idx < 0) return null;
+    return idx;
 }
 
 // ─── SCAN FUNCTIONS ──────────────────────────────────
@@ -186,6 +188,7 @@ async function loadAllPanelData() {
         loadSpectrumAnalysis(),
         loadEMFieldMap(),
         loadHistoricalMapsStandalone(),
+        loadSpaceWeather(),
     ]);
 }
 
@@ -198,6 +201,7 @@ async function runFullScan(btn) {
     const result = await apiGet(`/api/full-scan?lat=${loc.lat}&lon=${loc.lon}&radius_m=${loc.radius_m}&start_date=${loc.start_date}`);
     if (result && gen === _scanGeneration) {
         _lastScanData = result;
+        _lastScanData._scanIndex = -1;
         document.querySelector('[data-tab="analysis"]').click();
         displayFullScanResults(result);
         loadAllPanelData();
@@ -216,6 +220,7 @@ async function runMegaScan(btn) {
     const result = await apiGet(`/api/mega-scan?lat=${loc.lat}&lon=${loc.lon}&radius_m=${loc.radius_m}&start_date=${loc.start_date}&place_name=${encodeURIComponent(place)}`);
     if (result && gen === _scanGeneration) {
         _lastScanData = result;
+        _lastScanData._scanIndex = -1;
         document.querySelector('[data-tab="analysis"]')?.click();
         displayFullScanResults(result);
         loadAllPanelData();
@@ -320,11 +325,13 @@ function displayFullScanResults(data) {
         </div>
     `;
 
-loadEnvPanel(data);
-    loadWebArchivePanel(data);
-    loadArchDBPanel(data);
-    loadWeatherPanel(data);
-    loadSignalsPanels(data);
+if (data.environmental || data.historical_web || data.archaeological_db || data.space_weather) {
+        if (data.environmental) loadEnvPanel(data);
+        if (data.historical_web) loadWebArchivePanel(data);
+        if (data.archaeological_db) loadArchDBPanel(data);
+        if (data.space_weather) loadWeatherPanel(data);
+        loadSignalsPanels(data);
+    }
 }
 
 function loadEnvPanel(data) {
@@ -361,7 +368,8 @@ function loadWebArchivePanel(data) {
     if (web.osm?.historic_features?.length) {
         html += `<div class="finding-card info"><strong>OSM HISTORIC</strong> — ${web.osm.historic_features.length} features</div>`;
     }
-    document.getElementById('webarchive-content').innerHTML = html || '<div class="empty-state">No web archives found</div>';
+    const waEl = document.getElementById('webarchive-content');
+    if (waEl) waEl.innerHTML = html || '<div class="empty-state">No web archives found</div>';
 }
 
 function loadArchDBPanel(data) {
@@ -409,23 +417,46 @@ function loadArchDBPanel(data) {
             });
         }
     }
-    document.getElementById('archdb-content').innerHTML = html || '<div class="empty-state">Run Full Spectrum Scan for archaeological data</div>';
+    const adbEl = document.getElementById('archdb-content');
+    if (adbEl) adbEl.innerHTML = html || '<div class="empty-state">Run Full Spectrum Scan for archaeological data</div>';
 }
 
 function loadWeatherPanel(data) {
     const weather = data.space_weather || {};
-    if (weather.interpretation) {
-        document.getElementById('weather-content').innerHTML = `<div class="finding-card info">${weather.interpretation.map(i => `<div>${i}</div>`).join('')}</div>`;
+    const el = document.getElementById('weather-content');
+    if (!el) return;
+    if (Array.isArray(weather.interpretation) && weather.interpretation.length) {
+        el.innerHTML = `<div class="finding-card info">${weather.interpretation.map(i => `<div>${i}</div>`).join('')}</div>`;
     } else if (weather.data?.length) {
         const sw = weather.data[0];
-        document.getElementById('weather-content').innerHTML = `<div class="finding-card info">Solar wind: ${sw.speed} km/s, Density: ${sw.density} p/cm³</div>`;
+        el.innerHTML = `<div class="finding-card info">Solar wind: ${sw.speed} km/s, Density: ${sw.density} p/cm³</div>`;
     }
 }
 
-function loadHistoricalMapsPanel(data) {
-    const maps = data.historical_maps || [];
-    if (maps.length > 0) {
-        document.getElementById('maps-content').innerHTML = maps.map(m => `<div class="finding-card info"><strong>${safeText(m.name || m.source || 'Map')}</strong><br><a href="${escapeHtml(m.url || m.link || '#')}" target="_blank" style="color:var(--accent)">${escapeHtml(m.url || m.link || 'View')}</a></div>`).join('');
+async function loadSpaceWeather() {
+    const el = document.getElementById('weather-content');
+    if (!el) return;
+    el.innerHTML = '<div class="empty-state">Fetching space weather...</div>';
+    const result = await apiGet('/api/data/space-weather?days=3');
+    if (result) {
+        const sw = result.solar_wind || {};
+        const gm = result.geomagnetic || {};
+        let html = '';
+        if (sw.data?.length) {
+            const latest = sw.data[sw.data.length - 1] || {};
+            html += `<div class="finding-card info"><strong>SOLAR WIND</strong> — Speed: ${latest.speed ?? '--'} km/s, Density: ${latest.density ?? '--'} p/cm³</div>`;
+        }
+        if (sw.interpretation) {
+            sw.interpretation.forEach(i => { html += `<div class="finding-card info">${i}</div>`; });
+        }
+        if (gm.data?.length) {
+            const latestKp = gm.data[gm.data.length - 1] || {};
+            html += `<div class="finding-card info"><strong>GEOMAGNETIC Kp</strong> — Current: ${latestKp.kp_index ?? '--'}</div>`;
+        }
+        if (gm.interpretation) {
+            gm.interpretation.forEach(i => { html += `<div class="finding-card info">${i}</div>`; });
+        }
+        el.innerHTML = html || '<div class="empty-state">No space weather data available</div>';
     }
 }
 
@@ -444,7 +475,8 @@ function displayWebArchives(web) {
     if (web.osm?.historic_features?.length) {
         html += `<div class="finding-card info"><strong>OSM HISTORIC</strong> — ${web.osm.historic_features.length} features</div>`;
     }
-    document.getElementById('webarchive-content').innerHTML = html || '<div class="empty-state">No web archives found</div>';
+    const waEl = document.getElementById('webarchive-content');
+    if (waEl) waEl.innerHTML = html || '<div class="empty-state">No web archives found</div>';
 }
 
 // ─── CHARTS ──────────────────────────────────────────
@@ -622,6 +654,8 @@ function loadSignalsPanels(data) {
     loadMagneticField();
     loadSARBackscatter();
     loadRadioData();
+    loadSpectrumAnalysis();
+    loadEMFieldMap();
 }
 
 async function loadMagneticField() {
@@ -942,118 +976,6 @@ async function explainAnomaly(index) {
     }
 }
 
-// ─── LIDAR / TERRAIN ANALYSIS ────────────────────────
-async function loadLidar() {
-    const loc = getLocationData();
-    const el = document.getElementById('archdb-content');
-    if (el) el.innerHTML += '<div class="finding-card info" style="margin-top:4px;">Loading terrain data...</div>';
-    const result = await apiGet(`/api/arch/lidar?lat=${loc.lat}&lon=${loc.lon}`);
-    if (result) {
-        let html = '';
-        if (escapeHtml(result.error)) {
-            html = `<div class="finding-card warning">${escapeHtml(result.error)}</div>`;
-        } else {
-            const e = result.elevation || {};
-            const t = result.terrain || {};
-            const f = result.features || {};
-            html += `<div class="finding-card info"><strong>TERRAIN ANALYSIS</strong> — ${result.source || 'Open-Elevation'}</div>`;
-            html += `<div class="metric-row">
-                <div class="metric"><span class="metric-value">${e.min_m ?? '--'}m</span><span class="metric-label">Min Elevation</span></div>
-                <div class="metric"><span class="metric-value">${e.max_m ?? '--'}m</span><span class="metric-label">Max Elevation</span></div>
-                <div class="metric"><span class="metric-value">${e.mean_m ?? '--'}m</span><span class="metric-label">Mean Elevation</span></div>
-            </div>`;
-            html += `<div class="metric-row">
-                <div class="metric"><span class="metric-value">${t.roughness_m ?? '--'}m</span><span class="metric-label">Roughness</span></div>
-                <div class="metric"><span class="metric-value">${t.mean_slope_deg ?? '--'}°</span><span class="metric-label">Mean Slope</span></div>
-                <div class="metric"><span class="metric-value">${e.range_m ?? '--'}m</span><span class="metric-label">Elevation Range</span></div>
-            </div>`;
-            if (f.ridges?.length) {
-                html += `<div class="finding-card info"><strong>RIDGE FEATURES</strong> — ${f.ridges.length} detected</div>`;
-                f.ridges.slice(0, 3).forEach(r => {
-                    html += `<div class="finding-card info" style="margin-left:12px;font-size:11px;">${safeText(r.elevation)}m at (${safeText(r.lat)}, ${safeText(r.lon)})</div>`;
-                });
-            }
-            if (f.valleys?.length) {
-                html += `<div class="finding-card info"><strong>VALLEY FEATURES</strong> — ${f.valleys.length} detected</div>`;
-                f.valleys.slice(0, 3).forEach(v => {
-                    html += `<div class="finding-card info" style="margin-left:12px;font-size:11px;">${safeText(v.elevation)}m at (${safeText(v.lat)}, ${safeText(v.lon)})</div>`;
-                });
-            }
-            if (result.interpretation) {
-                result.interpretation.forEach(i => { html += `<div class="finding-card info">${safeText(i)}</div>`; });
-            }
-            if (e.grid) {
-                html += `<div class="finding-card info"><button class="btn-inline" onclick="renderTerrain3D()" style="margin-top:4px;">RENDER 3D TERRAIN</button></div>`;
-                window._lastTerrainGrid = e.grid;
-            }
-        }
-        el.insertAdjacentHTML('beforeend', html);
-    }
-}
-
-function renderTerrain3D() {
-    const grid = window._lastTerrainGrid;
-    if (!grid || !grid.length) return;
-    const el = document.getElementById('archdb-content');
-    if (el) {
-        el.insertAdjacentHTML('beforeend', '<div id="terrain-3d-chart" style="width:100%;height:350px;margin-top:8px;"></div>');
-        const z = grid;
-        Plotly.newPlot('terrain-3d-chart', [{
-            z: z, type: 'surface',
-            colorscale: [[0, '#010103'], [0.3, '#1a3a5a'], [0.6, '#c8a87c'], [1, '#fff']],
-            contours: { z: { show: true, usecolormap: true, project: { z: true } } },
-        }], {
-            paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
-            font: { color: '#4a5a6a', size: 10 }, margin: { t: 10, r: 10, b: 10, l: 10 },
-            scene: {
-                xaxis: { title: 'Lon', gridcolor: 'rgba(255,255,255,0.05)' },
-                yaxis: { title: 'Lat', gridcolor: 'rgba(255,255,255,0.05)' },
-                zaxis: { title: 'Elevation (m)', gridcolor: 'rgba(255,255,255,0.05)' },
-                bgcolor: 'rgba(0,0,0,0)',
-            },
-        }, { responsive: true, displayModeBar: false });
-    }
-}
-
-// ─── CROSS-REFERENCE ─────────────────────────────────
-async function loadCrossref() {
-    const loc = getLocationData();
-    const el = document.getElementById('archdb-content');
-    if (el) el.innerHTML += '<div class="finding-card info" style="margin-top:4px;">Cross-referencing databases...</div>';
-    const result = await apiGet(`/api/arch/crossref?lat=${loc.lat}&lon=${loc.lon}&radius_km=50`);
-    if (result) {
-        let html = '';
-        if (result.matches) {
-            html = `<div class="finding-card info"><strong>CROSS-REFERENCE</strong> — ${result.matches.length || 0} confirmed matches</div>`;
-            (result.matches || []).slice(0, 5).forEach(m => {
-                html += `<div class="finding-card info" style="margin-left:12px;font-size:11px;">${safeText(m.name || m.title || JSON.stringify(m))}</div>`;
-            });
-        } else {
-            html = `<div class="finding-card info"><pre style="white-space:pre-wrap;font-size:11px;">${JSON.stringify(result, null, 2)}</pre></div>`;
-        }
-        el.insertAdjacentHTML('beforeend', html);
-    }
-}
-
-// ─── TEMPORAL ARCH ───────────────────────────────────
-async function loadTemporalArch() {
-    const loc = getLocationData();
-    const el = document.getElementById('archdb-content');
-    if (el) el.innerHTML += '<div class="finding-card info" style="margin-top:4px;">Loading temporal changes...</div>';
-    const result = await apiGet(`/api/arch/temporal?lat=${loc.lat}&lon=${loc.lon}`);
-    if (result) {
-        let html = `<div class="finding-card info"><strong>TEMPORAL CHANGES</strong></div>`;
-        if (result.changes) {
-            result.changes.slice(0, 10).forEach(c => {
-                html += `<div class="finding-card info" style="margin-left:12px;font-size:11px;">${safeText(c.date || c.period || '')} — ${safeText(c.description || c.type || JSON.stringify(c))}</div>`;
-            });
-        } else {
-            html += `<div class="finding-card info"><pre style="white-space:pre-wrap;font-size:11px;">${escapeHtml(JSON.stringify(result, null, 2))}</pre></div>`;
-        }
-        el.insertAdjacentHTML('beforeend', html);
-    }
-}
-
 // ─── BATCH SCAN ──────────────────────────────────────
 async function runBatchScan() {
     const input = document.getElementById('batch-locations')?.value?.trim();
@@ -1068,7 +990,7 @@ async function runBatchScan() {
     const result = await apiPost('/api/arch/batch', locations);
     if (el && result) {
         if (escapeHtml(result.error)) {
-            el.innerHTML = `<div class="finding-card warning">${escapeHtml(escapeHtml(result.error))}</div>`;
+            el.innerHTML = `<div class="finding-card warning">${escapeHtml(result.error)}</div>`;
         } else {
             const ranked = result.ranked || result.results || result;
             let html = '';
@@ -1095,7 +1017,7 @@ async function compareScans() {
     const result = await apiGet(`/api/compare?indices=${encodeURIComponent(input)}`);
     if (el && result) {
         if (escapeHtml(result.error)) {
-            el.innerHTML = `<div class="finding-card warning">${escapeHtml(escapeHtml(result.error))}</div>`;
+            el.innerHTML = `<div class="finding-card warning">${escapeHtml(result.error)}</div>`;
         } else {
             const scans = result.scans || [];
             const best = result.best || {};
@@ -1124,7 +1046,7 @@ async function generateTerrain() {
 
     const result = await fetch(API + `/api/ai/terrain?lat=${loc.lat}&lon=${loc.lon}&grid_size=20`, { method: 'POST' }).then(r => r.json());
     if (result?.error) {
-        if (info) info.innerHTML = `<div style="font-size:11px;color:#ff4444;">${escapeHtml(escapeHtml(result.error))}</div>`;
+        if (info) info.innerHTML = `<div style="font-size:11px;color:#ff4444;">${escapeHtml(result.error)}</div>`;
         return;
     }
 
@@ -1244,7 +1166,7 @@ async function runGeminiAnalysis(btn) {
     if (status) status.innerHTML = 'Running AI analysis...';
     const result = await apiPost('/api/gemini/analyze', loc);
     if (result?.error) {
-        if (status) status.innerHTML = `<span style="color:#ff4444">${escapeHtml(escapeHtml(result.error))}</span>`;
+        if (status) status.innerHTML = `<span style="color:#ff4444">${escapeHtml(result.error)}</span>`;
         setBtnLoading(btn, false);
         return;
     }
@@ -1276,7 +1198,7 @@ async function runGeminiReport(btn) {
     const place = document.getElementById('input-place')?.value || '';
     const result = await apiPost(`/api/gemini/report?location_name=${encodeURIComponent(place)}`, loc);
     if (result?.error) {
-        if (status) status.innerHTML = `<span style="color:#ff4444">${escapeHtml(escapeHtml(result.error))}</span>`;
+        if (status) status.innerHTML = `<span style="color:#ff4444">${escapeHtml(result.error)}</span>`;
         setBtnLoading(btn, false);
         return;
     }
@@ -1296,7 +1218,7 @@ async function loadHistoricalContext(btn) {
     const place = document.getElementById('input-place')?.value || '';
     const result = await apiGet(`/api/gemini/history?lat=${loc.lat}&lon=${loc.lon}&name=${encodeURIComponent(place)}`);
     if (result?.error) {
-        if (status) status.innerHTML = `<span style="color:#ff4444">${escapeHtml(escapeHtml(result.error))}</span>`;
+        if (status) status.innerHTML = `<span style="color:#ff4444">${escapeHtml(result.error)}</span>`;
         setBtnLoading(btn, false);
         return;
     }
@@ -1315,7 +1237,7 @@ async function runInvestigationPlan(btn) {
     if (status) status.innerHTML = 'Creating investigation plan...';
     const result = await apiPost('/api/gemini/investigate', loc);
     if (result?.error) {
-        if (status) status.innerHTML = `<span style="color:#ff4444">${escapeHtml(escapeHtml(result.error))}</span>`;
+        if (status) status.innerHTML = `<span style="color:#ff4444">${escapeHtml(result.error)}</span>`;
         setBtnLoading(btn, false);
         return;
     }
@@ -1353,7 +1275,7 @@ async function sendChat() {
     if (typing) typing.remove();
 
     if (result?.error) {
-        messagesEl.innerHTML += `<div style="margin-bottom:8px;padding:8px 12px;background:rgba(255,68,68,0.08);border-left:2px solid #ff4444;font-size:12px;color:#ff4444;">${escapeHtml(escapeHtml(result.error))}</div>`;
+        messagesEl.innerHTML += `<div style="margin-bottom:8px;padding:8px 12px;background:rgba(255,68,68,0.08);border-left:2px solid #ff4444;font-size:12px;color:#ff4444;">${escapeHtml(result.error)}</div>`;
     } else {
         const reply = result?.response || result?.reply || result?.text || 'No response';
         messagesEl.innerHTML += `<div style="margin-bottom:8px;padding:8px 12px;background:rgba(0,240,255,0.05);border-left:2px solid #00f0ff;font-size:12px;line-height:1.6;">${safeMarkdown(reply)}</div>`;
@@ -1385,24 +1307,10 @@ async function aiInterpretSignal() {
     const result = await apiPost('/api/gemini/interpret-signal', { signal_data: {}, spectral_data: spectral });
     const interpEl = document.getElementById('ai-signal-interp');
     if (result?.error) {
-        if (interpEl) interpEl.outerHTML = `<div class="finding-card warning" style="margin-top:8px;">${escapeHtml(escapeHtml(result.error))}</div>`;
+        if (interpEl) interpEl.outerHTML = `<div class="finding-card warning" style="margin-top:8px;">${escapeHtml(result.error)}</div>`;
     } else {
         const text = result?.interpretation || result?.text || JSON.stringify(result);
         if (interpEl) interpEl.outerHTML = `<div class="finding-card info" style="margin-top:8px;border-left-color:#c8a87c;"><strong>AI SIGNAL INTERPRETATION</strong><br>${safeMarkdown(text)}</div>`;
-    }
-}
-
-async function aiInterpretEnvironmental() {
-    const env = _lastScanData?.environmental || {};
-    const el = document.getElementById('env-content');
-    if (el) el.insertAdjacentHTML('beforeend', '<div id="ai-env-interp" class="finding-card info" style="margin-top:8px;border-left-color:#c8a87c;">AI interpreting environmental data...</div>');
-    const result = await apiPost('/api/gemini/interpret-environmental', { env_data: env });
-    const interpEl = document.getElementById('ai-env-interp');
-    if (result?.error) {
-        if (interpEl) interpEl.outerHTML = `<div class="finding-card warning" style="margin-top:8px;">${escapeHtml(escapeHtml(result.error))}</div>`;
-    } else {
-        const text = result?.interpretation || result?.text || JSON.stringify(result);
-        if (interpEl) interpEl.outerHTML = `<div class="finding-card info" style="margin-top:8px;border-left-color:#c8a87c;"><strong>AI ENVIRONMENTAL INTERPRETATION</strong><br>${safeMarkdown(text)}</div>`;
     }
 }
 
@@ -1419,7 +1327,7 @@ async function aiSynthesizeCrossref() {
     });
     const interpEl = document.getElementById('ai-crossref');
     if (result?.error) {
-        if (interpEl) interpEl.outerHTML = `<div class="finding-card warning" style="margin-top:8px;">${escapeHtml(escapeHtml(result.error))}</div>`;
+        if (interpEl) interpEl.outerHTML = `<div class="finding-card warning" style="margin-top:8px;">${escapeHtml(result.error)}</div>`;
     } else {
         const text = result?.synthesis || result?.text || JSON.stringify(result);
         if (interpEl) interpEl.outerHTML = `<div class="finding-card info" style="margin-top:8px;border-left-color:#c8a87c;"><strong>AI CROSS-REFERENCE SYNTHESIS</strong><br>${safeMarkdown(text)}</div>`;
