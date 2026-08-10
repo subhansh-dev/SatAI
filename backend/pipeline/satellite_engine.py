@@ -240,16 +240,22 @@ class SatelliteEngine:
             combined = image.addBands([ndvi, ndwi, ndbi])
 
             stats = combined.select(["NDVI", "NDWI", "NDBI"]).reduceRegion(
-                reducer=ee.Reducer.mean().combine(ee.Reducer.stdDev(), inBandNames=["NDVI", "NDWI", "NDBI"], outBandNames=["NDVI_mean", "NDWI_mean", "NDBI_mean", "NDVI_stdDev", "NDWI_stdDev", "NDBI_stdDev"]),
+                reducer=ee.Reducer.mean(),
+                geometry=region,
+                scale=10
+            ).getInfo()
+
+            stats_std = combined.select(["NDVI", "NDWI", "NDBI"]).reduceRegion(
+                reducer=ee.Reducer.stdDev(),
                 geometry=region,
                 scale=10
             ).getInfo()
 
             return {
-                "NDVI": {"mean": stats.get("NDVI_mean", 0), "std": stats.get("NDVI_stdDev", 0)},
-                "NDWI": {"mean": stats.get("NDWI_mean", 0), "std": stats.get("NDWI_stdDev", 0)},
-                "NDBI": {"mean": stats.get("NDBI_mean", 0), "std": stats.get("NDBI_stdDev", 0)},
-                "interpretation": self._interpret_indices(stats)
+                "NDVI": {"mean": stats.get("NDVI", 0), "std": stats_std.get("NDVI", 0)},
+                "NDWI": {"mean": stats.get("NDWI", 0), "std": stats_std.get("NDWI", 0)},
+                "NDBI": {"mean": stats.get("NDBI", 0), "std": stats_std.get("NDBI", 0)},
+                "interpretation": self._interpret_indices({**stats, **{k+"_stdDev": v for k, v in stats_std.items()}})
             }
         except Exception as e:
             return self._gee_error("spectral indices", e)
@@ -302,11 +308,13 @@ class SatelliteEngine:
                 stats = image.select(["VV", "VH"]).reduceRegion(
                     reducer=ee.Reducer.mean(), geometry=region, scale=30
                 )
+                vv = ee.Number(stats.get("VV"))
+                vh = ee.Number(stats.get("VH"))
                 return ee.Feature(None, {
                     "date": image.date().format("YYYY-MM-dd"),
-                    "vv": stats.get("VV"),
-                    "vh": stats.get("VH"),
-                    "ratio": stats.get("VV") - stats.get("VH"),
+                    "vv": vv,
+                    "vh": vh,
+                    "ratio": vv.subtract(vh),
                 })
 
             results = collection.map(extract_sar).getInfo()
