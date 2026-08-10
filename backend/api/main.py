@@ -98,6 +98,7 @@ HISTORY_FILE = Path(__file__).parent.parent.parent / "data" / "scan_history.json
 async def startup_init():
     satellite.initialize()
     gemini.initialize()
+    ai.load_models()
 
 
 def _load_history():
