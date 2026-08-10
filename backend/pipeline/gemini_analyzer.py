@@ -56,6 +56,10 @@ class GeminiAnalyzer:
         self.initialized = False
         self._http = None
         self._use_gemini_sdk = False
+        # Fallback: Gemini
+        self._fallback_client = None
+        self._fallback_model = None
+        self._fallback_use_sdk = False
 
     def initialize(self):
         provider_cfg = PROVIDERS.get(self.provider, PROVIDERS["cerebras"])
@@ -88,18 +92,53 @@ class GeminiAnalyzer:
             self._use_gemini_sdk = False
             self.initialized = True
 
+        # Initialize fallback (Gemini) if primary is not gemini
+        self._init_fallback()
+
     def _ok(self):
         return self.initialized
 
+    def _init_fallback(self):
+        """Initialize Gemini as fallback if primary is not gemini."""
+        if self.provider == "gemini":
+            return
+        gemini_key = os.getenv("GEMINI_API_KEY", "")
+        if not gemini_key or gemini_key.startswith("your-"):
+            print("[GeminiAnalyzer] No GEMINI_API_KEY — no fallback available")
+            return
+        try:
+            from google import genai
+            self._fallback_client = genai.Client(api_key=gemini_key)
+            self._fallback_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+            self._fallback_use_sdk = True
+            print(f"[GeminiAnalyzer] Fallback ready: Gemini ({self._fallback_model})")
+        except ImportError:
+            print("[GeminiAnalyzer] google-genai not installed — no Gemini fallback")
+
     async def _gen(self, system_prompt, user_prompt, temperature=0.7, max_tokens=4096):
+        # Try primary provider first
+        try:
+            result = await self._gen_primary(system_prompt, user_prompt, temperature, max_tokens)
+            if result:
+                return result
+        except Exception as e:
+            print(f"[GeminiAnalyzer] Primary ({self.provider}) failed: {e}")
+
+        # Fallback to Gemini
+        if self._fallback_client:
+            try:
+                print(f"[GeminiAnalyzer] Falling back to Gemini...")
+                result = await self._gen_gemini(system_prompt, user_prompt, temperature, max_tokens)
+                return result
+            except Exception as e:
+                print(f"[GeminiAnalyzer] Fallback also failed: {e}")
+                raise
+
+        raise RuntimeError("Both primary and fallback LLM providers failed")
+
+    async def _gen_primary(self, system_prompt, user_prompt, temperature=0.7, max_tokens=4096):
         if self._use_gemini_sdk:
-            full_prompt = f"{system_prompt}\n\n{user_prompt}"
-            resp = await asyncio.to_thread(
-                self._gemini_client.models.generate_content,
-                model=self.model_name,
-                contents=full_prompt,
-            )
-            return resp.text
+            return await self._gen_gemini(system_prompt, user_prompt, temperature, max_tokens)
 
         messages = [
             {"role": "system", "content": system_prompt},
@@ -124,6 +163,15 @@ class GeminiAnalyzer:
             resp.raise_for_status()
             data = resp.json()
             return data["choices"][0]["message"]["content"]
+
+    async def _gen_gemini(self, system_prompt, user_prompt, temperature=0.7, max_tokens=4096):
+        full_prompt = f"{system_prompt}\n\n{user_prompt}"
+        resp = await asyncio.to_thread(
+            self._fallback_client.models.generate_content,
+            model=self._fallback_model,
+            contents=full_prompt,
+        )
+        return resp.text
 
     async def analyze_scan_results(self, scan_data):
         if not self._ok():

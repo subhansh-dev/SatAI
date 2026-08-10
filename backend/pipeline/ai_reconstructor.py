@@ -17,9 +17,13 @@ class AIReconstructor:
     def __init__(self):
         self.models_loaded = False
         self._llm_client = None
-        self._llm_key = os.getenv("CEREBRAS_API_KEY", "csk-6m2krnyfn34t4n9ct6f2ck5x2vj9p32f8tv9c2yky9myyc6m")
+        self._llm_key = os.getenv("CEREBRAS_API_KEY", "")
         self._llm_model = "gpt-oss-120b"
         self._llm_url = "https://api.cerebras.ai/v1"
+        # Fallback: Gemini
+        self._fallback_client = None
+        self._fallback_model = None
+        self._fallback_use_sdk = False
 
     def load_models(self):
         """Load ML models (lightweight versions for local, full on Colab)."""
@@ -37,22 +41,53 @@ class AIReconstructor:
         else:
             print("[AIReconstructor] Models loaded (lightweight mode)")
 
-    def _llm_generate(self, prompt: str, max_tokens: int = 500) -> str:
-        """Generate text via Cerebras LLM."""
-        if not self._llm_client:
-            return ""
+        # Init Gemini fallback
+        self._init_fallback()
+
+    def _init_fallback(self):
+        gemini_key = os.getenv("GEMINI_API_KEY", "")
+        if not gemini_key or gemini_key.startswith("your-"):
+            return
         try:
-            resp = self._llm_client.post("/chat/completions", json={
-                "model": self._llm_model,
-                "messages": [{"role": "user", "content": prompt}],
-                "max_tokens": max_tokens,
-                "temperature": 0.3,
-            })
-            if resp.status_code == 200:
-                data = resp.json()
-                return data["choices"][0]["message"]["content"].strip()
-        except Exception:
+            from google import genai
+            self._fallback_client = genai.Client(api_key=gemini_key)
+            self._fallback_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+            self._fallback_use_sdk = True
+            print("[AIReconstructor] Gemini fallback ready")
+        except ImportError:
             pass
+
+    def _llm_generate(self, prompt: str, max_tokens: int = 500) -> str:
+        """Generate text via Cerebras, fallback to Gemini."""
+        # Try Cerebras first
+        if self._llm_client:
+            try:
+                resp = self._llm_client.post("/chat/completions", json={
+                    "model": self._llm_model,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": max_tokens,
+                    "temperature": 0.3,
+                })
+                if resp.status_code == 200:
+                    data = resp.json()
+                    return data["choices"][0]["message"]["content"].strip()
+                else:
+                    print(f"[AIReconstructor] Cerebras returned {resp.status_code}")
+            except Exception as e:
+                print(f"[AIReconstructor] Cerebras failed: {e}")
+
+        # Fallback to Gemini
+        if self._fallback_client:
+            try:
+                print("[AIReconstructor] Falling back to Gemini...")
+                resp = self._fallback_client.models.generate_content(
+                    model=self._fallback_model,
+                    contents=prompt,
+                )
+                return resp.text.strip()
+            except Exception as e:
+                print(f"[AIReconstructor] Gemini fallback also failed: {e}")
+
         return ""
 
     def ai_interpret_fusion(self, fusion_result: dict) -> str:
