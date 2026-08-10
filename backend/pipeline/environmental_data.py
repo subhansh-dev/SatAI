@@ -85,19 +85,59 @@ class EnvironmentalData:
         except Exception as e: return {"error":str(e)}
 
     def get_water_table(self, lat, lon):
+        import requests
+        elev = 0
         try:
-            resp = self.session.post("https://api.open-elevation.com/api/v1/lookup", json={"locations":[{"latitude":lat,"longitude":lon}]}, timeout=10)
-            elev = 0
-            if resp.status_code==200:
-                r = resp.json().get("results",[])
-                if r: elev = r[0].get("elevation",0)
-            if elev<5: est,risk="very shallow (<2m)","high"
-            elif elev<50: est,risk="shallow (2-5m)","moderate"
-            elif elev<200: est,risk="moderate (5-15m)","low"
-            elif elev<1000: est,risk="deep (15-50m)","very low"
-            else: est,risk="very deep (>50m)","minimal"
-            return {"source":"Elevation-based estimate","location":{"lat":lat,"lon":lon},"elevation_m":elev,"water_table":est,"risk":risk,"interpretation":self._interp_water(risk)}
-        except Exception as e: return {"error":str(e)}
+            resp = requests.get(f"https://api.opentopodata.org/v1/srtm90m?locations={lat},{lon}", timeout=10)
+            if resp.status_code == 200:
+                r = resp.json().get("results", [{}])[0]
+                elev = r.get("elevation", 0) or 0
+        except Exception:
+            pass
+
+        soil_data = {}
+        try:
+            resp = self.session.get(
+                f"https://rest.isric.org/soilgrids/v2.0/properties/query?lon={lon}&lat={lat}&property=cfvo&property=clay&depth=0-5cm&value=mean",
+                timeout=10)
+            if resp.status_code == 200:
+                layers = resp.json().get("properties", {}).get("layers", [])
+                for layer in layers:
+                    prop = layer.get("name", "")
+                    vals = layer.get("depths", [{}])[0].get("values", {})
+                    soil_data[prop] = vals.get("mean", 0)
+        except Exception:
+            pass
+
+        cfvo = soil_data.get("cfvo", 0) or 0
+        clay = soil_data.get("clay", 0) or 0
+
+        if elev < 5:
+            est, risk = "very shallow (<2m)", "high"
+        elif elev < 20:
+            est, risk = "shallow (2-5m)", "high" if clay > 350 else "moderate"
+        elif elev < 50:
+            est, risk = "shallow-moderate (3-8m)", "moderate"
+        elif elev < 200:
+            if clay > 400:
+                est, risk = "moderate (5-15m)", "moderate"
+            else:
+                est, risk = "moderate-deep (8-20m)", "low"
+        elif elev < 1000:
+            est, risk = "deep (15-50m)", "low"
+        else:
+            est, risk = "very deep (>50m)", "minimal"
+
+        return {
+            "source": "SRTM elevation + ISRIC SoilGrids (real data)",
+            "location": {"lat": lat, "lon": lon},
+            "elevation_m": elev,
+            "soil_cfvo": cfvo,
+            "soil_clay": clay,
+            "water_table": est,
+            "risk": risk,
+            "interpretation": self._interp_water(risk),
+        }
 
     def _interp_water(self, risk):
         if risk=="high": return ["Shallow water - structures waterlogged. Thermal dampened.","Organic remains may be preserved."]

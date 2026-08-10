@@ -96,7 +96,7 @@ class ArchaeologicalDB:
             return {"source":"VIIRS","error":"NASA CMR HTTP "+str(resp.status_code)}
         except Exception as e: return {"error": str(e)}
 
-    def lidar_dem(self, lat, lon):
+    def terrain_analysis(self, lat, lon):
         """Fetch real elevation data and analyze terrain for archaeological features."""
         import numpy as np
 
@@ -108,22 +108,21 @@ class ArchaeologicalDB:
                 locations.append({"latitude": lat + dy, "longitude": lon + dx})
 
         try:
-            resp = self.session.post(
-                "https://api.open-elevation.com/api/v1/lookup",
-                json={"locations": locations},
+            resp = self.session.get(
+                f"https://api.opentopodata.org/v1/srtm90m?locations=" + "|".join(f"{l['latitude']},{l['longitude']}" for l in locations),
                 timeout=30,
             )
             if resp.status_code != 200:
-                return {"error": f"Open-Elevation API returned HTTP {resp.status_code}"}
+                return {"error": f"Elevation API returned HTTP {resp.status_code}"}
 
             results = resp.json().get("results", [])
             if not results:
                 return {"error": "No elevation data returned."}
 
-            elevations = np.array([r.get("elevation", 0) for r in results]).reshape(grid_size, grid_size)
+            elevations = np.array([r.get("elevation", 0) or 0 for r in results]).reshape(grid_size, grid_size)
 
             grad_y, grad_x = np.gradient(elevations)
-            slope = np.sqrt(grad_xx**2 + grad_yy**2) if False else np.sqrt(grad_x**2 + grad_y**2)
+            slope = np.sqrt(grad_x**2 + grad_y**2)
 
             from scipy.ndimage import maximum_filter, minimum_filter
             local_max = maximum_filter(elevations, size=5)

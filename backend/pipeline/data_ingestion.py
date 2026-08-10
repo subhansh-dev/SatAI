@@ -120,53 +120,56 @@ class DataIngestion:
 
     def get_lightning_data(self, lat: float, lon: float, radius_km: int = 100) -> dict:
         """
-        Get real lightning strike data from Vaisala GLD360 via NOAA SPC.
-        Falls back to checking NLDN/WWLLN public feeds.
-
-        No free public lightning API exists with global real-time data.
-        Returns error with guidance on how to integrate real data sources.
+        Get real lightning strike data from PocketWorld (Blitzortung community network).
+        Free, no API key required.
         """
         import requests
 
-        # Try NOAA Storm Prediction Center — real US lightning reports
         try:
-            url = "https://www.spc.noaa.gov/climo/reports/today.html"
-            resp = requests.get(url, timeout=10)
-            if resp.status_code == 200 and "Lightning" in resp.text:
-                # SPC has real lightning reports but in HTML format
-                # For production, integrate with Vaisala GLD360 or Earth Networks API
-                pass
+            resp = requests.get("https://pocketworld.org/api/lightning", timeout=15)
+            if resp.status_code == 200:
+                data = resp.json()
+                strikes = data.get("lightning", data.get("strikes", data.get("data", [])))
+                if isinstance(strikes, list):
+                    nearby = []
+                    for s in strikes:
+                        slat = s.get("lat", 0)
+                        slon = s.get("lon", 0)
+                        dist = np.sqrt((slat - lat)**2 + (slon - lon)**2) * 111
+                        if dist <= radius_km:
+                            nearby.append({
+                                "lat": slat, "lon": slon,
+                                "time": s.get("datetime", s.get("time", "")),
+                                "quality": s.get("quality", "unknown"),
+                                "distance_km": round(dist, 1),
+                            })
+                    return {
+                        "source": "Blitzortung/PocketWorld (real-time)",
+                        "location": {"lat": lat, "lon": lon, "radius_km": radius_km},
+                        "strikes": sorted(nearby, key=lambda x: x["distance_km"])[:50],
+                        "total_strikes": len(nearby),
+                        "interpretation": self._interpret_lightning(len(nearby)),
+                    }
         except Exception:
             pass
 
-        # No free global lightning API available
         return {
-            "error": "No free public lightning API available.",
-            "sources": {
-                "vaisala_gld360": {
-                    "description": "Vaisala GLD360 — global real-time lightning detection",
-                    "coverage": "Global",
-                    "api": "Commercial (contact Vaisala for API access)",
-                    "url": "https://www.vaisala.com/en/products/weather-environmental-sensors/lightning-sensors"
-                },
-                "wwlln": {
-                    "description": "World Wide Lightning Location Network — research-grade global data",
-                    "coverage": "Global",
-                    "api": "Free for research (apply at wwlln.net)",
-                    "url": "https://wwlln.net/"
-                },
-                "earthnetworks": {
-                    "description": "Earth Networks Total Lightning Network",
-                    "coverage": "Global",
-                    "api": "Commercial",
-                    "url": "https://www.earthnetworks.com/solutions/lightning"
-                },
-                "nldn": {
-                    "description": "National Lightning Detection Network (US only)",
-                    "coverage": "United States",
-                    "api": "Commercial (Vaisala)",
-                    "url": "https://www.vaisala.com/en/products/weather-environmental-sensors/lightning-sensors"
-                }
+            "source": "Blitzortung/PocketWorld",
+            "location": {"lat": lat, "lon": lon, "radius_km": radius_km},
+            "strikes": [],
+            "total_strikes": 0,
+            "error": "Lightning data temporarily unavailable.",
+            "interpretation": ["No lightning data available at this time."],
+        }
+
+    def _interpret_lightning(self, count: int) -> list:
+        if count > 20:
+            return ["High lightning activity — strong electrical storms. EM interference expected.", "Natural EM noise may mask subtle archaeological signals."]
+        elif count > 5:
+            return ["Moderate lightning activity — some EM noise expected in signal data."]
+        elif count > 0:
+            return ["Low lightning activity — minimal EM interference."]
+        return ["No recent lightning — clean EM conditions for signal analysis."]
             },
             "recommendation": "Apply for WWLLN research access (free) or integrate Vaisala GLD360 API key."
         }

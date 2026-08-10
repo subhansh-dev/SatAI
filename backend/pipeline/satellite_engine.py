@@ -58,6 +58,81 @@ class SatelliteEngine:
         return {
             "error": msg,
             "hint": "Set GEE_PROJECT_ID in .env and run: earthengine authenticate",
+            "mock": True,
+        }
+
+    def _mock_timeseries(self, lat: float, lon: float, start_date: str, end_date: str, source: str) -> dict:
+        """Generate realistic mock satellite timeseries when GEE is unavailable."""
+        import random
+        random.seed(int(lat * 1000 + lon * 1000))
+
+        start = datetime.strptime(start_date, "%Y-%m-%d")
+        end = datetime.strptime(end_date, "%Y-%m-%d")
+        dates = []
+        current = start
+        while current <= end:
+            dates.append(current.strftime("%Y-%m-%d"))
+            current += timedelta(days=16)
+
+        timeseries = []
+        for d in dates:
+            month = int(d.split("-")[1])
+            seasonal = 0.3 + 0.15 * np.sin(2 * np.pi * (month - 3) / 12)
+            ndvi = seasonal + random.gauss(0, 0.03)
+            ndwi = 0.1 + random.gauss(0, 0.05)
+            ndbi = 0.05 + random.gauss(0, 0.02)
+            thermal = 1500 + 300 * np.sin(2 * np.pi * (month - 1) / 12) + random.gauss(0, 50)
+            timeseries.append({
+                "date": d,
+                "ndvi": round(max(0, min(1, ndvi)), 4),
+                "moisture": round(ndwi, 4),
+                "thermal": round(max(0, thermal), 2),
+                "ndbi": round(max(0, min(1, ndbi)), 4),
+                "bsi": round(random.gauss(0.05, 0.02), 4),
+                "savi": round(max(0, min(1, seasonal * 1.2 + random.gauss(0, 0.03))), 4),
+                "ndmi": round(random.gauss(0.01, 0.03), 4),
+            })
+
+        return {
+            "location": {"lat": lat, "lon": lon, "radius_m": 500},
+            "source": f"{source}_mock",
+            "data_points": len(timeseries),
+            "timeseries": timeseries,
+            "mock": True,
+            "note": "GEE unavailable — using synthetic data for demo. Connect GEE for real satellite imagery.",
+        }
+
+    def _mock_sar(self, lat: float, lon: float, start_date: str, end_date: str) -> dict:
+        """Generate realistic mock SAR backscatter when GEE is unavailable."""
+        import random
+        random.seed(int(lat * 1000 + lon * 1000))
+
+        start = datetime.strptime(start_date, "%Y-%m-%d")
+        end = datetime.strptime(end_date, "%Y-%m-%d")
+        dates = []
+        current = start
+        while current <= end:
+            dates.append(current.strftime("%Y-%m-%d"))
+            current += timedelta(days=12)
+
+        timeseries = []
+        for d in dates:
+            vv = -12 + random.gauss(0, 3)
+            vh = -18 + random.gauss(0, 2)
+            timeseries.append({
+                "date": d,
+                "vv": round(vv, 2),
+                "vh": round(vh, 2),
+                "ratio": round(vv - vh, 2),
+            })
+
+        return {
+            "location": {"lat": lat, "lon": lon, "radius_m": 500},
+            "source": "sentinel1_sar_mock",
+            "count": len(timeseries),
+            "timeseries": timeseries,
+            "mock": True,
+            "note": "GEE unavailable — using synthetic SAR data for demo.",
         }
 
     def get_satellite_timeseries(
@@ -70,7 +145,7 @@ class SatelliteEngine:
         source: str = "sentinel2"
     ) -> dict:
         if not self._ensure_init():
-            return self._gee_error("satellite timeseries")
+            return self._mock_timeseries(lat, lon, start_date, end_date or "2024-12-31", source)
 
         if end_date is None:
             end_date = datetime.now().strftime("%Y-%m-%d")
@@ -215,7 +290,7 @@ class SatelliteEngine:
 
     def compute_spectral_indices(self, lat: float, lon: float, radius_m: int = 500) -> dict:
         if not self._ensure_init():
-            return self._gee_error("spectral indices")
+            return {"mock": True, "error": "GEE unavailable — spectral indices require real satellite data.", "hint": "Connect GEE for spectral analysis."}
 
         try:
             point = ee.Geometry.Point(lon, lat)
@@ -286,7 +361,7 @@ class SatelliteEngine:
         end_date: Optional[str] = None,
     ) -> dict:
         if not self._ensure_init():
-            return self._gee_error("SAR backscatter")
+            return self._mock_sar(lat, lon, start_date, end_date or "2024-12-31")
 
         if end_date is None:
             end_date = datetime.now().strftime("%Y-%m-%d")
@@ -349,7 +424,8 @@ class SatelliteEngine:
         period2_end: str = "2024-12-31",
     ) -> dict:
         if not self._ensure_init():
-            return self._gee_error("NDVI change detection")
+            return {"mock": True, "change_detected": False, "ndvi_change": 0, "period1_mean": 0.3, "period2_mean": 0.3,
+                    "note": "GEE unavailable — using placeholder data. Connect GEE for real change detection."}
 
         try:
             point = ee.Geometry.Point(lon, lat)

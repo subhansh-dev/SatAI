@@ -47,7 +47,7 @@ def safe_json(data):
     return json.loads(json.dumps(data, cls=NumpyEncoder))
 
 
-app = FastAPI(title="CHRONOVISOR", description="Temporal Archaeology Engine", version="0.3.0")
+app = FastAPI(title="CHRONOVISOR", description="Temporal Archaeology Engine", version="0.6.0")
 
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
@@ -770,7 +770,7 @@ async def arch_nightlights(lat: float, lon: float):
 
 @app.get("/api/arch/lidar")
 async def arch_lidar(lat: float, lon: float):
-    return safe_json(arch_db.lidar_dem(lat, lon))
+    return safe_json(arch_db.terrain_analysis(lat, lon))
 
 
 @app.get("/api/arch/full")
@@ -965,6 +965,10 @@ async def mega_scan(
         osm=osm_r,
         wayback=wayback_r,
     )
+
+    ai_interpretation = ai.ai_interpret_fusion(fused) if ai._llm_client else ""
+    if ai_interpretation:
+        fused["ai_expert_interpretation"] = ai_interpretation
 
     result = safe_json({
         "scan_target": {"lat": lat, "lon": lon, "radius_m": radius_m, "place_name": place_name},

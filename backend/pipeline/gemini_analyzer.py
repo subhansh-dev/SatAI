@@ -64,12 +64,9 @@ class GeminiAnalyzer:
         self.base_url = provider_cfg["base_url"]
 
         if not self.api_key or self.api_key.startswith("your-"):
-            if self.provider == "cerebras":
-                self.api_key = os.getenv("CEREBRAS_API_KEY", "csk-6m2krnyfn34t4n9ct6f2ck5x2vj9p32f8tv9c2yky9myyc6m")
-            if not self.api_key or self.api_key.startswith("your-"):
-                self.initialized = False
-                print(f"[GeminiAnalyzer] init FAILED: no API key for {provider_cfg['env_key']}")
-                return
+            self.initialized = False
+            print(f"[GeminiAnalyzer] init FAILED: no API key for {provider_cfg['env_key']}")
+            return
 
         if self.provider == "gemini":
             try:

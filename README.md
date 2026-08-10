@@ -2,7 +2,7 @@
   <br>
   <img src="https://img.shields.io/badge/SIH-2025-blue?style=for-the-badge" alt="sih">
   <img src="https://img.shields.io/badge/PS-SIH1563--NTRO-red?style=for-the-badge" alt="ps">
-  <img src="https://img.shields.io/badge/version-0.5.0-green?style=for-the-badge" alt="version">
+  <img src="https://img.shields.io/badge/version-0.6.0-green?style=for-the-badge" alt="version">
   <img src="https://img.shields.io/badge/API-70%2B-orange?style=for-the-badge" alt="endpoints">
   <img src="https://img.shields.io/badge/AI-Cerebras--120B-purple?style=for-the-badge" alt="ai">
   <img src="https://img.shields.io/badge/data-24--sources-yellow?style=for-the-badge" alt="sources">
@@ -10,7 +10,7 @@
 </p>
 
 ```
-CHRONOVISOR v0.5.0
+CHRONOVISOR v0.6.0
 Multi-Source Satellite Intelligence Platform
 for Change Detection & Anomaly Analysis
 ```
@@ -86,7 +86,7 @@ Chronovisor solves this with **multi-source data fusion** — not just SAR, but 
 | Polygon output (GeoJSON/Shapefile) | `/api/export/json` → GeoJSON with georeferenced anomaly polygons | ✅ Built |
 | Scalable for large areas | Async FastAPI + 12-thread parallel fetch + GEE planet-scale backend | ✅ Built |
 | GUI for area specification | Leaflet dark-tile map with click-to-scan, radius config, date range | ✅ Built |
-| Runs on Google Earth Engine | GEE integration (Sentinel-1/2, Landsat 8) with mock fallback | ✅ Built |
+| Runs on Google Earth Engine | GEE integration (Sentinel-1/2, Landsat 8) with demo fallback | ✅ Built |
 
 ---
 
@@ -246,9 +246,9 @@ Data:      24 free public APIs
 - Real NDVI change detection
 - Planet-scale processing
 
-**Mock Mode (demo/offline):**
-- Synthetic 36-point time series with realistic patterns
-- All 70+ endpoints work without GEE
+**Demo Mode (offline/GEE unavailable):**
+- Realistic synthetic satellite timeseries with seasonal patterns
+- All 70+ endpoints work without GEE authentication
 - Demo runs in 1 command: `python run.py`
 
 **Render (free cloud deploy):**

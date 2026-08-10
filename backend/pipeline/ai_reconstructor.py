@@ -7,6 +7,8 @@ Colab-ready for GPU acceleration.
 import numpy as np
 from typing import Optional
 import json
+import os
+import httpx
 
 
 class AIReconstructor:
@@ -14,11 +16,81 @@ class AIReconstructor:
 
     def __init__(self):
         self.models_loaded = False
+        self._llm_client = None
+        self._llm_key = os.getenv("CEREBRAS_API_KEY", "csk-6m2krnyfn34t4n9ct6f2ck5x2vj9p32f8tv9c2yky9myyc6m")
+        self._llm_model = "gpt-oss-120b"
+        self._llm_url = "https://api.cerebras.ai/v1"
 
     def load_models(self):
         """Load ML models (lightweight versions for local, full on Colab)."""
         self.models_loaded = True
-        print("[AIReconstructor] Models loaded (lightweight mode)")
+        if self._llm_key:
+            try:
+                self._llm_client = httpx.Client(
+                    base_url=self._llm_url,
+                    headers={"Authorization": f"Bearer {self._llm_key}", "Content-Type": "application/json"},
+                    timeout=60.0,
+                )
+                print("[AIReconstructor] Models loaded + Cerebras LLM connected")
+            except Exception:
+                print("[AIReconstructor] Models loaded (LLM unavailable)")
+        else:
+            print("[AIReconstructor] Models loaded (lightweight mode)")
+
+    def _llm_generate(self, prompt: str, max_tokens: int = 500) -> str:
+        """Generate text via Cerebras LLM."""
+        if not self._llm_client:
+            return ""
+        try:
+            resp = self._llm_client.post("/chat/completions", json={
+                "model": self._llm_model,
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": max_tokens,
+                "temperature": 0.3,
+            })
+            if resp.status_code == 200:
+                data = resp.json()
+                return data["choices"][0]["message"]["content"].strip()
+        except Exception:
+            pass
+        return ""
+
+    def ai_interpret_fusion(self, fusion_result: dict) -> str:
+        """Use Cerebras LLM to generate a human-readable expert interpretation of fused results."""
+        score = fusion_result.get("fused_score", 0)
+        findings = fusion_result.get("findings", [])
+        warnings = fusion_result.get("warnings", [])
+        modifiers = fusion_result.get("modifiers", [])
+
+        prompt = f"""You are an archaeological remote sensing expert analyzing satellite and environmental data.
+
+Analysis Results:
+- Fused archaeological potential score: {score}/100
+- Confidence: {fusion_result.get('confidence', 'unknown')}
+- Key findings: {'; '.join(findings[:5])}
+- Warnings: {'; '.join(warnings[:3]) if warnings else 'None'}
+- Data modifiers: {json.dumps(modifiers[:3]) if modifiers else 'None'}
+
+Provide a 2-3 sentence expert assessment. Be specific about what the data means for archaeological potential. Do not be generic."""
+
+        return self._llm_generate(prompt, max_tokens=200)
+
+    def ai_interpret_terrain(self, terrain_result: dict) -> str:
+        """Use Cerebras LLM to interpret 3D terrain analysis."""
+        ridges = terrain_result.get("features", {}).get("ridges", [])
+        valleys = terrain_result.get("features", {}).get("valleys", [])
+        anomalies = terrain_result.get("features", {}).get("anomalies", [])
+        elev_range = terrain_result.get("max_elevation", 0) - terrain_result.get("min_elevation", 0)
+
+        prompt = f"""You are a terrain analysis expert for archaeological survey.
+Terrain data: grid={terrain_result.get('grid_size')}, elev_range={elev_range:.1f}m
+Ridge points: {len(ridges)}, Valley points: {len(valleys)}, Anomaly points: {len(anomalies)}
+Ridges: {json.dumps(ridges[:3])}
+Valleys: {json.dumps(valleys[:3])}
+
+What does this terrain tell us about possible buried structures or artificial modifications? Be specific."""
+
+        return self._llm_generate(prompt, max_tokens=200)
 
     def detect_buried_structures(
         self,
