@@ -200,7 +200,7 @@
                         <span class="signal-desc-icon">
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
                         </span>
-                        <span class="signal-desc-text">Master overview of the full scan: satellite source, location, all detection results, and aggregate archaeological confidence score.</span>
+                        <span class="signal-desc-text">The master result. Combines every data source — satellite, soil, seismic, web archives, OSM — into one archaeological confidence score for this location.</span>
                     </div>
                 </div>
                 <div id="summary-content" class="panel-body">
@@ -217,11 +217,11 @@
                         <span class="signal-desc-icon">
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
                         </span>
-                        <span class="signal-desc-text">What it plots: NDVI (vegetation health) and NDWI (soil moisture) over time. Crop marks from buried walls show as vegetation stress anomalies.</span>
+                        <span class="signal-desc-text">Vegetation health (NDVI) and soil moisture (NDWI) plotted over time. Buried walls and foundations block root growth and water, creating visible stress patterns in crops above.</span>
                     </div>
                     <div class="signal-desc-item signal-desc-good">
                         <span class="signal-desc-tag">GOOD SIGNAL</span>
-                        <span class="signal-desc-text">NDVI dip + NDWI spike in same area = buried structure affecting water retention. Seasonal pattern = likely archaeological, not natural.</span>
+                        <span class="signal-desc-text">NDVI dips and NDWI spikes at the same spot and same time = buried structure blocking water. Repeating every dry season = archaeological, not random.</span>
                     </div>
                 </div>
                 <div id="timeseries-chart" style="width:100%;height:300px;min-height:300px;padding:8px;"></div>
@@ -240,15 +240,15 @@
                         <span class="signal-desc-icon">
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
                         </span>
-                        <span class="signal-desc-text">Statistical outliers in pixel values (Z-score > 2.5). High anomaly density in a localized cluster strongly suggests buried structures.</span>
+                        <span class="signal-desc-text">Finds pixels that are statistically unusual compared to their neighbors (Z-score above 2.5). Clusters of anomalies in one area often mark buried walls, ditches, or foundations.</span>
                     </div>
                     <div class="signal-desc-item signal-desc-good">
                         <span class="signal-desc-tag">GOOD SIGNAL</span>
-                        <span class="signal-desc-text">>5 anomalies in < 100m radius = high archaeological probability. Anomalies forming linear/geometric pattern = walls/roads.</span>
+                        <span class="signal-desc-text">5 or more anomalies within 100 meters of each other = strong archaeological sign. Anomalies forming straight lines or right angles = buried walls or roads.</span>
                     </div>
                 </div>
                 <div id="anomalies-content" class="panel-body">
-                    <div class="empty-state">[NO ANOMALIES DETECTED]</div>
+                    <div class="empty-state">[RUN SCAN TO DETECT ANOMALIES]</div>
                 </div>
             </div>
 
@@ -261,15 +261,15 @@
                         <span class="signal-desc-icon">
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/></svg>
                         </span>
-                        <span class="signal-desc-text">Geometric pattern detection: looks for linear, rectangular, or circular arrangements in anomaly clusters — hallmarks of human construction.</span>
+                        <span class="signal-desc-text">Takes the detected anomalies and checks if they form geometric shapes — lines, rectangles, circles, grids. Nature rarely makes right angles; humans always do.</span>
                     </div>
                     <div class="signal-desc-item signal-desc-good">
                         <span class="signal-desc-tag">GOOD SIGNAL</span>
-                        <span class="signal-desc-text">Anomalies on grid lines or forming right angles = buried walls. Circular pattern = possible amphitheater/fortification.</span>
+                        <span class="signal-desc-text">Anomalies lining up on a grid or forming 90-degree corners = buried walls. Circular pattern = possible amphitheater, fortification, or ritual structure.</span>
                     </div>
                 </div>
                 <div id="structural-content" class="panel-body">
-                    <div class="empty-state">[AWAITING INPUT]</div>
+                    <div class="empty-state">[RUN SCAN TO ANALYZE STRUCTURE]</div>
                 </div>
             </div>
 
@@ -282,11 +282,11 @@
                         <span class="signal-desc-icon">
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg>
                         </span>
-                        <span class="signal-desc-text">Aggregate NDVI, NDWI, and NDBI (built-up index) statistics across the scan area. Useful for quick environmental fingerprinting.</span>
+                        <span class="signal-desc-text">Average vegetation (NDVI), water content (NDWI), built-up area (NDBI), and moisture (NDMI) across the entire scan area. A quick environmental fingerprint of the site.</span>
                     </div>
                 </div>
                 <div id="spectral-idx-content" class="panel-body">
-                    <div class="empty-state">[NDVI, NDWI, NDBI aggregate statistics]</div>
+                    <div class="empty-state">[RUN SCAN TO COMPUTE SPECTRAL INDICES]</div>
                 </div>
             </div>
 
@@ -299,15 +299,15 @@
                         <span class="signal-desc-icon">
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
                         </span>
-                        <span class="signal-desc-text">CUSUM change-point algorithm on the NDVI time series. Detects sudden shifts in vegetation that may indicate recent excavation or land disturbance.</span>
+                        <span class="signal-desc-text">Runs a change-point algorithm (CUSUM) on the vegetation time series. Finds the exact moment something changed on the ground — excavation, land clearing, or construction.</span>
                     </div>
                     <div class="signal-desc-item signal-desc-good">
                         <span class="signal-desc-tag">GOOD SIGNAL</span>
-                        <span class="signal-desc-text">Change point coinciding with dry season = possible illegal excavation. Multiple change points = repeated disturbance.</span>
+                        <span class="signal-desc-text">Sudden change during dry season = possible illegal excavation. Multiple change points over months = repeated disturbance or ongoing digging.</span>
                     </div>
                 </div>
                 <div id="temporal-change-content" class="panel-body">
-                    <div class="empty-state">[CUSUM-based change point detection]</div>
+                    <div class="empty-state">[RUN SCAN TO DETECT TEMPORAL CHANGES]</div>
                 </div>
             </div>
         </div>
@@ -325,11 +325,11 @@
                         <span class="signal-desc-icon">
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22c4-4 8-7.5 8-12a8 8 0 10-16 0c0 4.5 4 8 8 12z"/></svg>
                         </span>
-                        <span class="signal-desc-text">Soil type, pH, moisture, elevation, slope, and nearest settlement from SoilGrids, Open-Elevation, and GeoNames. Determines preservation potential.</span>
+                        <span class="signal-desc-text">Soil type, pH, clay content, elevation, slope, and population density around the target. Clay-rich soil preserves buried structures better than sand or rock.</span>
                     </div>
                     <div class="signal-desc-item signal-desc-good">
                         <span class="signal-desc-tag">GOOD SIGNAL</span>
-                        <span class="signal-desc-text">Clay-rich soil + gentle slope + near water = high preservation. Steep rocky terrain = low burial probability.</span>
+                        <span class="signal-desc-text">High clay content + gentle slope + near water = excellent preservation conditions. Rocky steep terrain = structures unlikely to survive buried.</span>
                     </div>
                 </div>
                 <div id="env-content" class="panel-body">
@@ -346,11 +346,11 @@
                         <span class="signal-desc-icon">
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 22L12 2l10 20H2z"/></svg>
                         </span>
-                        <span class="signal-desc-text">Bedrock type and lithology from USGS. Sedimentary basins often preserve archaeological layers; volcanic terrain can bury sites under lava/mudflow.</span>
+                        <span class="signal-desc-text">Bedrock type and rock age from USGS geological surveys. Sedimentary basins trap and preserve archaeological layers. Volcanic terrain can bury or destroy sites.</span>
                     </div>
                 </div>
                 <div id="geology-content" class="panel-body">
-                    <div class="empty-state">[Bedrock and lithology data]</div>
+                    <div class="empty-state">[RUN SCAN TO LOAD GEOLOGY]</div>
                 </div>
             </div>
 
@@ -363,11 +363,11 @@
                         <span class="signal-desc-icon">
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2.69l5.66 5.66a8 8 0 11-11.31 0z"/></svg>
                         </span>
-                        <span class="signal-desc-text">Rivers, lakes, and springs within 5km from HydroSHEDS and GeoNames. Settlements cluster near water — proximity boosts site probability.</span>
+                        <span class="signal-desc-text">Rivers, lakes, and springs within 5km of the target. Ancient settlements were always built near water — proximity to water sources is a strong indicator of past habitation.</span>
                     </div>
                 </div>
                 <div id="water-content" class="panel-body">
-                    <div class="empty-state">[Find water sources near the site]</div>
+                    <div class="empty-state">[RUN SCAN TO FIND WATER SOURCES]</div>
                 </div>
             </div>
 
@@ -380,11 +380,11 @@
                         <span class="signal-desc-icon">
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
                         </span>
-                        <span class="signal-desc-text">Flash density from ENTLN/WWLLN global lightning networks. High lightning activity can affect satellite sensor readings and site preservation.</span>
+                        <span class="signal-desc-text">Lightning strike density near the target from global detection networks. High lightning activity can degrade satellite sensor accuracy and affect site preservation.</span>
                     </div>
                 </div>
                 <div id="lightning-content" class="panel-body">
-                    <div class="empty-state">[Lightning strike data near the site]</div>
+                    <div class="empty-state">[RUN SCAN TO LOAD LIGHTNING DATA]</div>
                 </div>
             </div>
 
@@ -397,11 +397,11 @@
                         <span class="signal-desc-icon">
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
                         </span>
-                        <span class="signal-desc-text">Real-time solar wind, Kp index, and X-ray flux from NOAA SWPC. Geomagnetic storms degrade satellite imagery quality.</span>
+                        <span class="signal-desc-text">Solar wind speed, geomagnetic Kp index, and X-ray flux from NOAA. Space storms introduce noise into satellite imagery and reduce data quality.</span>
                     </div>
                 </div>
                 <div id="weather-content" class="panel-body">
-                    <div class="empty-state">[LOADING...]</div>
+                    <div class="empty-state">[LOADING SPACE WEATHER...]</div>
                 </div>
             </div>
         </div>
@@ -419,15 +419,15 @@
                         <span class="signal-desc-icon">
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-9-9"/><path d="M21 3v9h-9"/></svg>
                         </span>
-                        <span class="signal-desc-text">Pixel-by-pixel NDVI difference between two dates. Reveals vegetation anomalies invisible in single-date imagery — the gold standard for crop-mark detection.</span>
+                        <span class="signal-desc-text">Compares vegetation health between two dates, pixel by pixel. Shows exactly where and when the ground changed — the best method for finding buried crop marks.</span>
                     </div>
                     <div class="signal-desc-item signal-desc-good">
                         <span class="signal-desc-tag">GOOD SIGNAL</span>
-                        <span class="signal-desc-text">Geometric NDVI difference pattern = buried walls affecting crop growth. Linear anomalies = roads or ditches. Diffuse = natural variation.</span>
+                        <span class="signal-desc-text">Sharp geometric NDVI difference = buried walls affecting crop growth above. Straight-line anomalies = ancient roads or ditches. Diffuse spread = natural variation.</span>
                     </div>
                 </div>
                 <div id="ndvi-change-content" class="panel-body">
-                    <div class="empty-state">[Compare vegetation between two time periods]</div>
+                    <div class="empty-state">[RUN SCAN TO COMPARE VEGETATION]</div>
                 </div>
             </div>
 
@@ -446,11 +446,11 @@
                         <span class="signal-desc-icon">
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 22L12 2l10 20H2z"/></svg>
                         </span>
-                        <span class="signal-desc-text">Terrain elevation profile along a chosen axis from Open-Elevation. Reveals mounds, platforms, or depressions that may indicate buried structures.</span>
+                        <span class="signal-desc-text">Terrain height profile along a straight line through the target. Shows mounds, depressions, and flat spots that may indicate buried platforms, walls, or ditches.</span>
                     </div>
                     <div class="signal-desc-item signal-desc-good">
                         <span class="signal-desc-tag">GOOD SIGNAL</span>
-                        <span class="signal-desc-text">Sharp bump = possible burial mound or platform. Depression = ditch or collapsed structure. Flat with sudden rise = wall remnant.</span>
+                        <span class="signal-desc-text">Sudden bump = burial mound or building platform. Sharp depression = ditch or collapsed structure. Flat ground with a sudden rise = wall remnant.</span>
                     </div>
                 </div>
                 <div id="elev-profile-chart" class="panel-body chart-area"></div>
@@ -465,11 +465,11 @@
                         <span class="signal-desc-icon">
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
                         </span>
-                        <span class="signal-desc-text">Settlements, ruins, and geographical features within 20km from GeoNames. Ancient place names often preserve historical site identities.</span>
+                        <span class="signal-desc-text">Towns, villages, ruins, and geographic features within 50km from GeoNames. Ancient place names often survive in modern settlement names and can point to lost sites.</span>
                     </div>
                 </div>
                 <div id="places-content" class="panel-body">
-                    <div class="empty-state">[Nearby settlements and place names]</div>
+                    <div class="empty-state">[RUN SCAN TO FIND NEARBY PLACES]</div>
                 </div>
             </div>
         </div>
@@ -487,15 +487,15 @@
                         <span class="signal-desc-icon">
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
                         </span>
-                        <span class="signal-desc-text">Wayback Machine snapshots + OpenStreetMap Overpass data. Historical aerials reveal sites since paved over. OSM tags indicate known ruins/monuments.</span>
+                        <span class="signal-desc-text">Checks the Internet Wayback Machine for old satellite/aerial imagery and OpenStreetMap for tagged ruins, monuments, and archaeological sites near the target.</span>
                     </div>
                     <div class="signal-desc-item signal-desc-good">
                         <span class="signal-desc-tag">GOOD SIGNAL</span>
-                        <span class="signal-desc-text">Old aerial shows field pattern now gone = recently destroyed site. OSM has "ruins" or "archaeological_site" tag = confirmed by prior survey.</span>
+                        <span class="signal-desc-text">Old aerial photo shows a field pattern that is now gone = recently destroyed site. OSM has "ruins" or "archaeological_site" tag = already confirmed by prior surveys.</span>
                     </div>
                 </div>
                 <div id="webarchive-content" class="panel-body">
-                    <div class="empty-state">[RUN WEB ARCHIVE SCAN]</div>
+                    <div class="empty-state">[RUN SCAN TO CHECK WEB ARCHIVES]</div>
                 </div>
             </div>
 
@@ -508,11 +508,11 @@
                         <span class="signal-desc-icon">
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/></svg>
                         </span>
-                        <span class="signal-desc-text">Links to David Rumsey, Old Maps Online, and British Library historical map collections. Manual overlay can reveal site boundaries lost to time.</span>
+                        <span class="signal-desc-text">Links to historical map collections — David Rumsey, Old Maps Online, British Library. Overlaying old maps on modern coordinates can reveal site boundaries lost to time.</span>
                     </div>
                 </div>
                 <div id="hist-maps-content" class="panel-body">
-                    <div class="empty-state">[Historical map overlays and archives]</div>
+                    <div class="empty-state">[RUN SCAN TO LOAD MAP SOURCES]</div>
                 </div>
             </div>
 
@@ -526,15 +526,15 @@
                         <span class="signal-desc-icon">
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
                         </span>
-                        <span class="signal-desc-text">Pleiades (ancient settlements), OpenContext (excavation data), and arXiv research papers. Cross-references your coordinates against known archaeological records.</span>
+                        <span class="signal-desc-text">Cross-references your coordinates against known archaeological databases — Pleiades (ancient settlements), Wikidata (heritage sites), GBIF (species), and magnetic field data.</span>
                     </div>
                     <div class="signal-desc-item signal-desc-good">
                         <span class="signal-desc-tag">GOOD SIGNAL</span>
-                        <span class="signal-desc-text">Pleiades record within 5km = ancient site known to scholarship. OpenContext excavation nearby = active research area. ArXiv hit = recent remote sensing study.</span>
+                        <span class="signal-desc-text">Pleiades record within 5km = ancient site known to scholarship. Wikidata heritage tag = officially recognized. Nearby magnetic anomaly = buried ferrous material.</span>
                     </div>
                 </div>
                 <div id="archdb-content" class="panel-body">
-                    <div class="empty-state">[RUN FULL SPECTRUM SCAN]</div>
+                    <div class="empty-state">[RUN SCAN TO LOAD ARCHAEOLOGICAL DATA]</div>
                 </div>
             </div>
         </div>
@@ -575,11 +575,11 @@
                         <span class="signal-desc-icon">
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4"/></svg>
                         </span>
-                        <span class="signal-desc-text">What it measures: Earth's magnetic field intensity (nT) across a grid around your target. Buried stone, brick, and fired clay distort the local field.</span>
+                        <span class="signal-desc-text">Measures Earth's magnetic field strength (in nanoTesla) across a grid around the target. Buried stone, brick, and fired clay distort the local magnetic field and create readable patterns.</span>
                     </div>
                     <div class="signal-desc-item signal-desc-good">
                         <span class="signal-desc-tag">GOOD SIGNAL</span>
-                        <span class="signal-desc-text">Gradient > 50 nT across the grid = possible buried structures. High gradient over a small area = likely man-made. Uniform field = nothing buried.</span>
+                        <span class="signal-desc-text">Magnetic gradient over 50 nT across the grid = possible buried structures. Sharp gradient over a small area = likely man-made. Flat uniform field = nothing buried.</span>
                     </div>
                 </div>
                 <div id="spectrum-chart" class="panel-body chart-area"></div>
@@ -595,11 +595,11 @@
                         <span class="signal-desc-icon">
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12h4l3-9 4 18 3-9h6"/></svg>
                         </span>
-                        <span class="signal-desc-text">What it measures: Radar reflectivity (dB) from Sentinel-1. Radar sees through clouds and detects surface roughness changes from buried features.</span>
+                        <span class="signal-desc-text">Radar reflectivity (in dB) from Sentinel-1. Radar penetrates clouds and detects surface roughness changes caused by buried features pushing up through the soil.</span>
                     </div>
                     <div class="signal-desc-item signal-desc-good">
                         <span class="signal-desc-tag">GOOD SIGNAL</span>
-                        <span class="signal-desc-text">VV/VH ratio spikes = surface disruption. Consistent backscatter anomaly across dates = buried structure affecting surface texture.</span>
+                        <span class="signal-desc-text">VV/VH polarization ratio spikes = surface disruption from buried structures. Consistent backscatter anomaly across multiple dates = permanent subsurface feature.</span>
                     </div>
                 </div>
                 <div id="em-field-chart" class="panel-body chart-area"></div>
@@ -615,11 +615,11 @@
                         <span class="signal-desc-icon">
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
                         </span>
-                        <span class="signal-desc-text">What it measures: Surface solar irradiance (W/m²) from NASA POWER. Affects thermal readings — high solar input can mask or amplify subsurface thermal signals.</span>
+                        <span class="signal-desc-text">Surface solar irradiance (in W/m²) from NASA POWER. High sunlight heats the ground more, which can amplify or mask thermal signals from buried structures.</span>
                     </div>
                     <div class="signal-desc-item signal-desc-good">
                         <span class="signal-desc-tag">GOOD SIGNAL</span>
-                        <span class="signal-desc-text">Stable irradiance = clean thermal baseline for anomaly detection. Sudden drops = cloud cover (adjust thermal interpretation). High values = strong thermal contrast potential.</span>
+                        <span class="signal-desc-text">Stable, consistent irradiance = clean thermal baseline for detecting anomalies. Sudden drops = cloud cover skewing readings. High values = stronger thermal contrast potential.</span>
                     </div>
                 </div>
                 <div id="radio-chart" class="panel-body chart-area"></div>
@@ -636,11 +636,11 @@
                         <span class="signal-desc-icon">
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12h4l3-9 4 18 3-9h6"/></svg>
                         </span>
-                        <span class="signal-desc-text">What it measures: Spatial frequency of magnetic field along a transect. Detects periodic subsurface features (walls, ditches, roads) via magnetic signature patterns.</span>
+                        <span class="signal-desc-text">Breaks the magnetic field into spatial frequencies using FFT. Periodic buried features — evenly spaced walls, roads, ditches — show up as repeating frequency peaks.</span>
                     </div>
                     <div class="signal-desc-item signal-desc-good">
                         <span class="signal-desc-tag">GOOD SIGNAL</span>
-                        <span class="signal-desc-text">Clean harmonic peaks = periodic buried structures. High magnitude with clear period = man-made origin. Flat = uniform geology.</span>
+                        <span class="signal-desc-text">Clean, sharp frequency peaks at regular intervals = periodic buried structures (walls, roads). High magnitude peak with clear period = man-made. Flat spectrum = uniform geology.</span>
                     </div>
                 </div>
                 <div id="spectrum-analysis-chart" class="panel-body chart-area"></div>
@@ -656,11 +656,11 @@
                         <span class="signal-desc-icon">
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4"/></svg>
                         </span>
-                        <span class="signal-desc-text">What it measures: 2D magnetic field intensity grid from NOAA World Magnetic Model. Hotspots indicate concentrated magnetic energy from buried ferrous/materials.</span>
+                        <span class="signal-desc-text">A 2D heatmap of magnetic field intensity across the scan grid from NOAA's World Magnetic Model. Bright spots show where the field is strongest — where buried materials concentrate.</span>
                     </div>
                     <div class="signal-desc-item signal-desc-good">
                         <span class="signal-desc-tag">GOOD SIGNAL</span>
-                        <span class="signal-desc-text">Focused hotspot = likely buried metallic/man-made object. Diffuse gradient = geological variation. Uniform = no subsurface features.</span>
+                        <span class="signal-desc-text">Focused bright hotspot = likely buried metallic or fired-clay object. Spread-out gradient = natural geological variation. Uniform color = no subsurface features.</span>
                     </div>
                 </div>
                 <div id="em-field-map-chart" class="panel-body chart-area"></div>
@@ -677,7 +677,7 @@
                     <button class="btn-inline" onclick="loadHistory()">REFRESH</button>
                 </div>
                 <div id="history-content" class="panel-body">
-                    <div class="empty-state">[LOADING HISTORY...]</div>
+                    <div class="empty-state">[NO SCANS YET]</div>
                 </div>
             </div>
             <div class="panel glass-panel panel-wide" id="panel-compare">

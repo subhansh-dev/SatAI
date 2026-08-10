@@ -92,8 +92,15 @@ function setLocation(lat, lon) {
 function setStatus(text, type) {
     const el = document.getElementById('scan-status');
     if (el) {
-        const color = type === 'error' ? '#ff4444' : type === 'success' ? '#c8a87c' : '#666';
-        el.innerHTML = `<span style="color:${color}">${text}</span>`;
+        if (type === 'processing' || type === 'scanning') {
+            el.classList.add('scanning');
+            const color = 'var(--accent)';
+            el.innerHTML = `<span style="color:${color}">${text}</span>`;
+        } else {
+            el.classList.remove('scanning');
+            const color = type === 'error' ? '#ff4444' : type === 'success' ? '#c8a87c' : '#666';
+            el.innerHTML = `<span style="color:${color}">${text}</span>`;
+        }
     }
 }
 
@@ -111,7 +118,7 @@ function getLocationData() {
 }
 
 async function apiPost(endpoint, data) {
-    setStatus('Processing...');
+    setStatus('Processing', 'scanning');
     try {
         const resp = await fetch(API + endpoint, {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
@@ -127,7 +134,7 @@ async function apiPost(endpoint, data) {
 }
 
 async function apiGet(endpoint) {
-    setStatus('Fetching...');
+    setStatus('Fetching', 'scanning');
     try {
         const resp = await fetch(API + endpoint);
         const result = await resp.json();
@@ -162,12 +169,94 @@ function setBtnLoading(btn, loading) {
     if (loading) {
         btn._origText = btn.innerHTML;
         btn.classList.add('loading');
-        btn.innerHTML = '<span style="display:inline-flex;align-items:center;gap:6px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="animation:spin 0.8s linear infinite;"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>SCANNING...</span>';
+        btn.innerHTML = `<span style="display:inline-flex;align-items:center;gap:8px;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="animation:spin 0.8s linear infinite;">
+                <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
+            </svg>
+            <span class="scan-text">SCANNING</span>
+        </span>
+        <div class="scan-progress-track"><div class="scan-progress-fill"></div></div>`;
         btn.style.justifyContent = 'center';
+        document.body.classList.add('scan-active');
+        showScanOverlay(true);
+        pulseMapMarker(true);
     } else {
         btn.classList.remove('loading');
         btn.innerHTML = btn._origText || btn.innerHTML;
+        document.body.classList.remove('scan-active');
+        showScanOverlay(false);
+        pulseMapMarker(false);
+        scanCompleteFlash();
     }
+}
+
+// Scan overlay on map
+function showScanOverlay(active) {
+    let overlay = document.querySelector('.map-scan-overlay');
+    if (active) {
+        if (!overlay) {
+            overlay = document.createElement('div');
+            overlay.className = 'map-scan-overlay';
+            const mapEl = document.getElementById('map');
+            if (mapEl) mapEl.appendChild(overlay);
+        }
+        requestAnimationFrame(() => overlay.classList.add('active'));
+    } else {
+        if (overlay) {
+            overlay.classList.remove('active');
+            setTimeout(() => overlay.remove(), 500);
+        }
+    }
+}
+
+// Pulse the map marker during scan
+function pulseMapMarker(active) {
+    if (_marker) {
+        const el = _marker.getElement();
+        if (el) {
+            const inner = el.querySelector('.chronovisor-marker');
+            if (inner) {
+                if (active) inner.classList.add('scanning');
+                else inner.classList.remove('scanning');
+            }
+        }
+    }
+}
+
+// Flash on scan complete
+function scanCompleteFlash() {
+    const flash = document.createElement('div');
+    flash.className = 'scan-complete-flash';
+    document.body.appendChild(flash);
+    setTimeout(() => flash.remove(), 900);
+}
+
+// Animated scan status
+function setScanStatus(text, type) {
+    const el = document.getElementById('scan-status');
+    if (!el) return;
+    if (type === 'scanning') {
+        el.classList.add('scanning');
+        el.innerHTML = `<span style="color:var(--accent)">${text}</span><span class="dot-anim"></span>`;
+    } else {
+        el.classList.remove('scanning');
+        const color = type === 'error' ? '#ff4444' : type === 'success' ? '#c8a87c' : '#666';
+        el.innerHTML = `<span style="color:${color}">${text}</span>`;
+    }
+}
+
+// Reveal panels with stagger animation
+function revealPanels() {
+    const panels = document.querySelectorAll('.tab-content.active .panel');
+    panels.forEach((panel, i) => {
+        panel.style.opacity = '0';
+        panel.style.transform = 'translateY(12px)';
+        setTimeout(() => {
+            panel.classList.add('reveal-in');
+            panel.style.opacity = '';
+            panel.style.transform = '';
+        }, i * 60);
+    });
 }
 
 // ─── LOAD ALL PANEL DATA IN PARALLEL ─────────────────
@@ -196,10 +285,10 @@ async function runFullScan(btn) {
     if (_scanInProgress) return;
     _scanInProgress = true;
     setBtnLoading(btn, true);
+    setStatus('Running full spectrum scan', 'scanning');
     const gen = ++_scanGeneration;
     const loc = getLocationData();
 
-    // Fire full scan + all panel data simultaneously
     const fullScanPromise = apiGet(`/api/full-scan?lat=${loc.lat}&lon=${loc.lon}&radius_m=${loc.radius_m}&start_date=${loc.start_date}`);
     const panelPromise = loadAllPanelData();
 
@@ -211,20 +300,22 @@ async function runFullScan(btn) {
         _lastScanData._scanIndex = -1;
         document.querySelector('[data-tab="analysis"]').click();
         displayFullScanResults(result);
+        setTimeout(revealPanels, 100);
     }
     _scanInProgress = false;
     setBtnLoading(btn, false);
+    setStatus('Scan complete', 'success');
 }
 
 async function runMegaScan(btn) {
     if (_scanInProgress) return;
     _scanInProgress = true;
     setBtnLoading(btn, true);
+    setStatus('Running mega scan — all sources', 'scanning');
     const gen = ++_scanGeneration;
     const loc = getLocationData();
-    const place = prompt('Place name (optional):') || '';
+    const place = document.getElementById('input-place')?.value || '';
 
-    // Fire mega scan + all panel data simultaneously
     const megaScanPromise = apiGet(`/api/mega-scan?lat=${loc.lat}&lon=${loc.lon}&radius_m=${loc.radius_m}&start_date=${loc.start_date}&place_name=${encodeURIComponent(place)}`);
     const panelPromise = loadAllPanelData();
 
@@ -236,25 +327,31 @@ async function runMegaScan(btn) {
         _lastScanData._scanIndex = -1;
         document.querySelector('[data-tab="analysis"]')?.click();
         displayFullScanResults(result);
+        setTimeout(revealPanels, 100);
     }
     _scanInProgress = false;
     setBtnLoading(btn, false);
+    setStatus('Mega scan complete', 'success');
 }
 
 async function runSatelliteAnalysis(btn) {
     setBtnLoading(btn, true);
+    setStatus('Fetching satellite imagery', 'scanning');
     const loc = getLocationData();
     const result = await apiPost('/api/satellite/timeseries', loc);
     if (result) {
         _lastScanData = { satellite: result, ...(result.anomalies ? { anomalies: result.anomalies } : {}), ...(result.structural_analysis ? { structural_analysis: result.structural_analysis } : {}) };
         document.querySelector('[data-tab="analysis"]')?.click();
         displayFullScanResults(_lastScanData);
+        setTimeout(revealPanels, 100);
     }
     setBtnLoading(btn, false);
+    setStatus(result ? 'Satellite data loaded' : 'No data available', result ? 'success' : 'error');
 }
 
 async function runAnomalyDetection(btn) {
     setBtnLoading(btn, true);
+    setStatus('Running anomaly detection', 'scanning');
     const loc = getLocationData();
     const result = await apiPost('/api/satellite/anomalies', loc);
     if (result) {
@@ -266,22 +363,27 @@ async function runAnomalyDetection(btn) {
         document.getElementById('anomalies-content').innerHTML = html;
     }
     setBtnLoading(btn, false);
+    setStatus(result ? 'Anomaly detection complete' : 'Error', result ? 'success' : 'error');
 }
 
 async function runEnvironmentalScan(btn) {
     setBtnLoading(btn, true);
+    setStatus('Scanning environment data', 'scanning');
     const loc = getLocationData();
     const result = await apiGet(`/api/env/full?lat=${loc.lat}&lon=${loc.lon}`);
     if (result) {
         const activeTab = document.querySelector('.nav-btn.active')?.dataset?.tab;
         if (activeTab === 'map') document.querySelector('[data-tab="analysis"]')?.click();
         displayEnvironmental(result);
+        setTimeout(revealPanels, 100);
     }
     setBtnLoading(btn, false);
+    setStatus(result ? 'Environmental data loaded' : 'Error', result ? 'success' : 'error');
 }
 
 async function runHistoricalWeb(btn) {
     setBtnLoading(btn, true);
+    setStatus('Searching web archives', 'scanning');
     const loc = getLocationData();
     const place = document.getElementById('input-place')?.value || '';
     const result = await apiGet(`/api/web/full?lat=${loc.lat}&lon=${loc.lon}&place_name=${encodeURIComponent(place)}`);
@@ -289,8 +391,10 @@ async function runHistoricalWeb(btn) {
         const activeTab = document.querySelector('.nav-btn.active')?.dataset?.tab;
         if (activeTab === 'map') document.querySelector('[data-tab="analysis"]')?.click();
         displayWebArchives(result);
+        setTimeout(revealPanels, 100);
     }
     setBtnLoading(btn, false);
+    setStatus(result ? 'Web archives loaded' : 'Error', result ? 'success' : 'error');
 }
 
 // ─── DISPLAY RESULTS ─────────────────────────────────
@@ -525,7 +629,7 @@ function plotTimeseries(data) {
 async function searchPlace() {
     const query = document.getElementById('input-place').value.trim();
     if (!query) return;
-    setStatus('Searching...');
+    setStatus('Searching for location', 'scanning');
     const result = await apiGet('/api/geocode?q=' + encodeURIComponent(query));
     if (result?.results?.length > 0) {
         const place = result.results[0];
@@ -533,6 +637,18 @@ async function searchPlace() {
         if (_map) _map.setView([place.lat, place.lon], 13);
         document.querySelector('[data-tab="map"]')?.click();
         setStatus(`Found: ${place.name || query}`, 'success');
+        // Flash the map marker
+        if (_marker) {
+            const el = _marker.getElement();
+            if (el) {
+                const inner = el.querySelector('.chronovisor-marker');
+                if (inner) {
+                    inner.style.transform = 'scale(1.5)';
+                    inner.style.boxShadow = '0 0 40px rgba(200,168,124,0.9)';
+                    setTimeout(() => { inner.style.transform = ''; inner.style.boxShadow = ''; }, 600);
+                }
+            }
+        }
     } else {
         setStatus('Place not found', 'error');
     }
@@ -993,7 +1109,8 @@ async function runBatchScan() {
     const input = document.getElementById('batch-locations')?.value?.trim();
     const el = document.getElementById('batch-content');
     if (!input) { if (el) el.innerHTML = '<div class="finding-card warning">Enter locations first</div>'; return; }
-    if (el) el.innerHTML = '<div class="empty-state">Running batch scan...</div>';
+    if (el) el.innerHTML = '<div class="empty-state" style="animation:status-blink 1s step-end infinite;">Running batch scan<span class="dot-anim"></span></div>';
+    setStatus('Running batch scan', 'scanning');
     const lines = input.split('\n').filter(l => l.trim());
     const locations = lines.map(l => {
         const parts = l.split(',').map(s => parseFloat(s.trim()));
@@ -1025,7 +1142,8 @@ async function compareScans() {
     const input = document.getElementById('compare-indices')?.value?.trim();
     const el = document.getElementById('compare-content');
     if (!input) { if (el) el.innerHTML = '<div class="finding-card warning">Enter scan indices</div>'; return; }
-    if (el) el.innerHTML = '<div class="empty-state">Comparing scans...</div>';
+    if (el) el.innerHTML = '<div class="empty-state" style="animation:status-blink 1s step-end infinite;">Comparing scans<span class="dot-anim"></span></div>';
+    setStatus('Comparing scans', 'scanning');
     const result = await apiGet(`/api/compare?indices=${encodeURIComponent(input)}`);
     if (el && result) {
         if (escapeHtml(result.error)) {
@@ -1050,7 +1168,8 @@ async function generateTerrain() {
     const loc = getLocationData();
     const el = document.getElementById('terrain-3d');
     const info = document.getElementById('terrain-info');
-    if (info) info.innerHTML = '<div style="font-size:11px;color:#666;">Generating terrain model...</div>';
+    if (info) info.innerHTML = '<div style="font-size:11px;color:var(--accent);animation:status-blink 1s step-end infinite;">Generating terrain model<span class="dot-anim"></span></div>';
+    setStatus('Generating 3D terrain', 'scanning');
 
     if (_terrainAnimId) { cancelAnimationFrame(_terrainAnimId); _terrainAnimId = null; }
     if (_terrainRenderer) { _terrainRenderer.dispose(); _terrainRenderer = null; }
@@ -1161,13 +1280,14 @@ async function generateTerrain() {
 
     if (info) {
         info.innerHTML = `
-            <div style="font-size:11px;color:#666;line-height:1.8;">
-                Grid: ${cols}×${rows}<br>
+            <div style="font-size:11px;color:var(--text-secondary);line-height:1.8;">
+                Grid: ${cols}x${rows}<br>
                 Elevation: ${minElev.toFixed(0)}m — ${maxElev.toFixed(0)}m<br>
                 Anomalies: ${anomalies.length}
             </div>
         `;
     }
+    setStatus('Terrain model ready', 'success');
 }
 
 // ─── AI ANALYST ──────────────────────────────────────
@@ -1175,10 +1295,10 @@ async function runGeminiAnalysis(btn) {
     setBtnLoading(btn, true);
     const loc = getLocationData();
     const status = document.getElementById('ai-status');
-    if (status) status.innerHTML = 'Running AI analysis...';
+    if (status) { status.classList.add('scanning'); status.innerHTML = 'Running AI analysis<span class="dot-anim"></span>'; }
     const result = await apiPost('/api/gemini/analyze', loc);
     if (result?.error) {
-        if (status) status.innerHTML = `<span style="color:#ff4444">${escapeHtml(result.error)}</span>`;
+        if (status) { status.classList.remove('scanning'); status.innerHTML = `<span style="color:#ff4444">${escapeHtml(result.error)}</span>`; }
         setBtnLoading(btn, false);
         return;
     }
@@ -1193,12 +1313,12 @@ async function runGeminiAnalysis(btn) {
                 <h3 style="color:#c8a87c;margin-bottom:12px;">AI Analysis</h3>
                 ${safeMarkdown(ai.analysis || '')}
                 <div style="margin-top:16px;">
-                    <span class="metric"><span class="value">${score.toFixed(0)}%</span><span class="label">Potential</span></span>
+                    <span class="metric"><span class="metric-value">${score.toFixed(0)}%</span><span class="metric-label">Potential</span></span>
                 </div>
             </div>
         `;
     }
-    if (status) status.innerHTML = 'Analysis complete';
+    if (status) { status.classList.remove('scanning'); status.innerHTML = 'Analysis complete'; }
     setBtnLoading(btn, false);
 }
 
@@ -1206,11 +1326,11 @@ async function runGeminiReport(btn) {
     setBtnLoading(btn, true);
     const loc = getLocationData();
     const status = document.getElementById('ai-status');
-    if (status) status.innerHTML = 'Generating field report...';
+    if (status) { status.classList.add('scanning'); status.innerHTML = 'Generating field report<span class="dot-anim"></span>'; }
     const place = document.getElementById('input-place')?.value || '';
     const result = await apiPost(`/api/gemini/report?location_name=${encodeURIComponent(place)}`, loc);
     if (result?.error) {
-        if (status) status.innerHTML = `<span style="color:#ff4444">${escapeHtml(result.error)}</span>`;
+        if (status) { status.classList.remove('scanning'); status.innerHTML = `<span style="color:#ff4444">${escapeHtml(result.error)}</span>`; }
         setBtnLoading(btn, false);
         return;
     }
@@ -1218,7 +1338,7 @@ async function runGeminiReport(btn) {
     if (el) {
         el.innerHTML = `<div style="padding:12px;font-size:13px;line-height:1.7;"><h3 style="color:#c8a87c;margin-bottom:12px;">Field Report</h3>${safeMarkdown(result?.report || result?.text || JSON.stringify(result))}</div>`;
     }
-    if (status) status.innerHTML = 'Report generated';
+    if (status) { status.classList.remove('scanning'); status.innerHTML = 'Report generated'; }
     setBtnLoading(btn, false);
 }
 
@@ -1226,11 +1346,11 @@ async function loadHistoricalContext(btn) {
     setBtnLoading(btn, true);
     const loc = getLocationData();
     const status = document.getElementById('ai-status');
-    if (status) status.innerHTML = 'Loading historical context...';
+    if (status) { status.classList.add('scanning'); status.innerHTML = 'Loading historical context<span class="dot-anim"></span>'; }
     const place = document.getElementById('input-place')?.value || '';
     const result = await apiGet(`/api/gemini/history?lat=${loc.lat}&lon=${loc.lon}&name=${encodeURIComponent(place)}`);
     if (result?.error) {
-        if (status) status.innerHTML = `<span style="color:#ff4444">${escapeHtml(result.error)}</span>`;
+        if (status) { status.classList.remove('scanning'); status.innerHTML = `<span style="color:#ff4444">${escapeHtml(result.error)}</span>`; }
         setBtnLoading(btn, false);
         return;
     }
@@ -1238,7 +1358,7 @@ async function loadHistoricalContext(btn) {
     if (el) {
         el.innerHTML = `<div style="padding:12px;font-size:13px;line-height:1.7;"><h3 style="color:#c8a87c;margin-bottom:12px;">Historical Context</h3>${safeMarkdown(result?.context || result?.text || result?.timeline || JSON.stringify(result))}</div>`;
     }
-    if (status) status.innerHTML = 'Context loaded';
+    if (status) { status.classList.remove('scanning'); status.innerHTML = 'Context loaded'; }
     setBtnLoading(btn, false);
 }
 
@@ -1246,10 +1366,10 @@ async function runInvestigationPlan(btn) {
     setBtnLoading(btn, true);
     const loc = getLocationData();
     const status = document.getElementById('ai-status');
-    if (status) status.innerHTML = 'Creating investigation plan...';
+    if (status) { status.classList.add('scanning'); status.innerHTML = 'Creating investigation plan<span class="dot-anim"></span>'; }
     const result = await apiPost('/api/gemini/investigate', loc);
     if (result?.error) {
-        if (status) status.innerHTML = `<span style="color:#ff4444">${escapeHtml(result.error)}</span>`;
+        if (status) { status.classList.remove('scanning'); status.innerHTML = `<span style="color:#ff4444">${escapeHtml(result.error)}</span>`; }
         setBtnLoading(btn, false);
         return;
     }
@@ -1257,7 +1377,7 @@ async function runInvestigationPlan(btn) {
     if (el) {
         el.innerHTML = `<div style="padding:12px;font-size:13px;line-height:1.7;"><h3 style="color:#c8a87c;margin-bottom:12px;">Investigation Plan</h3>${safeMarkdown(result?.plan || result?.text || JSON.stringify(result))}</div>`;
     }
-    if (status) status.innerHTML = 'Plan ready';
+    if (status) { status.classList.remove('scanning'); status.innerHTML = 'Plan ready'; }
     setBtnLoading(btn, false);
 }
 
@@ -1314,22 +1434,26 @@ function exportCSV() {
 // ─── AI INTERPRETATION ──────────────────────────────
 async function aiInterpretSignal() {
     const el = document.getElementById('spectrum-analysis-chart');
-    if (el) el.insertAdjacentHTML('afterend', '<div id="ai-signal-interp" class="finding-card info" style="margin-top:8px;border-left-color:#c8a87c;">AI interpreting signal patterns...</div>');
+    if (el) el.insertAdjacentHTML('afterend', '<div id="ai-signal-interp" class="finding-card info" style="margin-top:8px;border-left-color:#c8a87c;animation:status-blink 1s step-end infinite;">AI interpreting signal patterns<span class="dot-anim"></span></div>');
+    setStatus('AI interpreting signals', 'scanning');
     const spectral = _lastSignalSpectral || {};
     const result = await apiPost('/api/gemini/interpret-signal', { signal_data: {}, spectral_data: spectral });
     const interpEl = document.getElementById('ai-signal-interp');
     if (result?.error) {
         if (interpEl) interpEl.outerHTML = `<div class="finding-card warning" style="margin-top:8px;">${escapeHtml(result.error)}</div>`;
+        setStatus('AI interpretation failed', 'error');
     } else {
         const text = result?.interpretation || result?.text || JSON.stringify(result);
         if (interpEl) interpEl.outerHTML = `<div class="finding-card info" style="margin-top:8px;border-left-color:#c8a87c;"><strong>AI SIGNAL INTERPRETATION</strong><br>${safeMarkdown(text)}</div>`;
+        setStatus('AI interpretation complete', 'success');
     }
 }
 
 async function aiSynthesizeCrossref() {
     const arch = _lastScanData?.archaeological_db || {};
     const el = document.getElementById('archdb-content');
-    if (el) el.insertAdjacentHTML('beforeend', '<div id="ai-crossref" class="finding-card info" style="margin-top:8px;border-left-color:#c8a87c;">AI cross-referencing databases...</div>');
+    if (el) el.insertAdjacentHTML('beforeend', '<div id="ai-crossref" class="finding-card info" style="margin-top:8px;border-left-color:#c8a87c;animation:status-blink 1s step-end infinite;">AI cross-referencing databases<span class="dot-anim"></span></div>');
+    setStatus('AI cross-referencing', 'scanning');
     const result = await apiPost('/api/gemini/synthesize-crossref', {
         pleiades: arch.pleiades || {},
         wikidata: arch.wikidata || {},
@@ -1340,9 +1464,11 @@ async function aiSynthesizeCrossref() {
     const interpEl = document.getElementById('ai-crossref');
     if (result?.error) {
         if (interpEl) interpEl.outerHTML = `<div class="finding-card warning" style="margin-top:8px;">${escapeHtml(result.error)}</div>`;
+        setStatus('AI cross-ref failed', 'error');
     } else {
         const text = result?.synthesis || result?.text || JSON.stringify(result);
         if (interpEl) interpEl.outerHTML = `<div class="finding-card info" style="margin-top:8px;border-left-color:#c8a87c;"><strong>AI CROSS-REFERENCE SYNTHESIS</strong><br>${safeMarkdown(text)}</div>`;
+        setStatus('AI cross-ref complete', 'success');
     }
 }
 
@@ -1352,6 +1478,7 @@ async function loadHistory() {
     const el = document.getElementById('history-content');
     if (!el || !result?.scans?.length) {
         if (el) el.innerHTML = '<div class="empty-state">No scans yet</div>';
+        setStatus(result ? 'History loaded' : 'No history', result ? 'success' : 'error');
         return;
     }
     let html = `<div style="margin-bottom:12px;font-size:11px;color:#666;">${result.count} scan(s) in history</div>`;
