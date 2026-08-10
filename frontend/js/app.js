@@ -198,13 +198,19 @@ async function runFullScan(btn) {
     setBtnLoading(btn, true);
     const gen = ++_scanGeneration;
     const loc = getLocationData();
-    const result = await apiGet(`/api/full-scan?lat=${loc.lat}&lon=${loc.lon}&radius_m=${loc.radius_m}&start_date=${loc.start_date}`);
+
+    // Fire full scan + all panel data simultaneously
+    const fullScanPromise = apiGet(`/api/full-scan?lat=${loc.lat}&lon=${loc.lon}&radius_m=${loc.radius_m}&start_date=${loc.start_date}`);
+    const panelPromise = loadAllPanelData();
+
+    const result = await fullScanPromise;
+    await panelPromise;
+
     if (result && gen === _scanGeneration) {
         _lastScanData = result;
         _lastScanData._scanIndex = -1;
         document.querySelector('[data-tab="analysis"]').click();
         displayFullScanResults(result);
-        loadAllPanelData();
     }
     _scanInProgress = false;
     setBtnLoading(btn, false);
@@ -217,13 +223,19 @@ async function runMegaScan(btn) {
     const gen = ++_scanGeneration;
     const loc = getLocationData();
     const place = prompt('Place name (optional):') || '';
-    const result = await apiGet(`/api/mega-scan?lat=${loc.lat}&lon=${loc.lon}&radius_m=${loc.radius_m}&start_date=${loc.start_date}&place_name=${encodeURIComponent(place)}`);
+
+    // Fire mega scan + all panel data simultaneously
+    const megaScanPromise = apiGet(`/api/mega-scan?lat=${loc.lat}&lon=${loc.lon}&radius_m=${loc.radius_m}&start_date=${loc.start_date}&place_name=${encodeURIComponent(place)}`);
+    const panelPromise = loadAllPanelData();
+
+    const result = await megaScanPromise;
+    await panelPromise;
+
     if (result && gen === _scanGeneration) {
         _lastScanData = result;
         _lastScanData._scanIndex = -1;
         document.querySelector('[data-tab="analysis"]')?.click();
         displayFullScanResults(result);
-        loadAllPanelData();
     }
     _scanInProgress = false;
     setBtnLoading(btn, false);
