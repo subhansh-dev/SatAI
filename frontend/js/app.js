@@ -142,6 +142,27 @@ function setBtnLoading(btn, loading) {
     }
 }
 
+// ─── LOAD ALL PANEL DATA IN PARALLEL ─────────────────
+async function loadAllPanelData() {
+    const loc = getLocationData();
+    await Promise.allSettled([
+        loadSpectralIndices(),
+        loadTemporalChange(),
+        loadNDVIChange(),
+        loadElevationProfile(),
+        loadWaterProximity(),
+        loadGeology(),
+        loadLightning(),
+        loadNearbyPlaces(),
+        loadMagneticField(),
+        loadSARBackscatter(),
+        loadRadioData(),
+        loadSpectrumAnalysis(),
+        loadEMFieldMap(),
+        loadHistoricalMapsStandalone(),
+    ]);
+}
+
 async function runFullScan(btn) {
     setBtnLoading(btn, true);
     const loc = getLocationData();
@@ -150,6 +171,7 @@ async function runFullScan(btn) {
         _lastScanData = result;
         document.querySelector('[data-tab="analysis"]').click();
         displayFullScanResults(result);
+        loadAllPanelData();
     }
     setBtnLoading(btn, false);
 }
@@ -163,6 +185,7 @@ async function runMegaScan(btn) {
         _lastScanData = result;
         document.querySelector('[data-tab="analysis"]')?.click();
         displayFullScanResults(result);
+        loadAllPanelData();
     }
     setBtnLoading(btn, false);
 }
@@ -199,7 +222,8 @@ async function runEnvironmentalScan(btn) {
     const loc = getLocationData();
     const result = await apiGet(`/api/env/full?lat=${loc.lat}&lon=${loc.lon}`);
     if (result) {
-        document.querySelector('[data-tab="analysis"]')?.click();
+        const activeTab = document.querySelector('.nav-btn.active')?.dataset?.tab;
+        if (activeTab === 'map') document.querySelector('[data-tab="analysis"]')?.click();
         displayEnvironmental(result);
     }
     setBtnLoading(btn, false);
@@ -211,7 +235,8 @@ async function runHistoricalWeb(btn) {
     const place = document.getElementById('input-place')?.value || '';
     const result = await apiGet(`/api/web/full?lat=${loc.lat}&lon=${loc.lon}&place_name=${encodeURIComponent(place)}`);
     if (result) {
-        document.querySelector('[data-tab="analysis"]')?.click();
+        const activeTab = document.querySelector('.nav-btn.active')?.dataset?.tab;
+        if (activeTab === 'map') document.querySelector('[data-tab="analysis"]')?.click();
         displayWebArchives(result);
     }
     setBtnLoading(btn, false);
@@ -265,7 +290,6 @@ loadEnvPanel(data);
     loadWebArchivePanel(data);
     loadArchDBPanel(data);
     loadWeatherPanel(data);
-    loadHistoricalMapsPanel(data);
     loadSignalsPanels(data);
 }
 
@@ -884,20 +908,76 @@ async function explainAnomaly(index) {
     }
 }
 
-// ─── LIDAR ───────────────────────────────────────────
+// ─── LIDAR / TERRAIN ANALYSIS ────────────────────────
 async function loadLidar() {
     const loc = getLocationData();
     const el = document.getElementById('archdb-content');
-    if (el) el.innerHTML += '<div class="finding-card info" style="margin-top:4px;">Loading LIDAR data...</div>';
+    if (el) el.innerHTML += '<div class="finding-card info" style="margin-top:4px;">Loading terrain data...</div>';
     const result = await apiGet(`/api/arch/lidar?lat=${loc.lat}&lon=${loc.lon}`);
     if (result) {
         let html = '';
-        if (result.available !== undefined) {
-            html = `<div class="finding-card info"><strong>LIDAR/SRTM</strong> — ${result.available ? 'Available' : 'Not available'} ${result.resolution ? '(' + result.resolution + ')' : ''}</div>`;
+        if (result.error) {
+            html = `<div class="finding-card warning">${result.error}</div>`;
         } else {
-            html = `<div class="finding-card info"><pre style="white-space:pre-wrap;font-size:11px;">${JSON.stringify(result, null, 2)}</pre></div>`;
+            const e = result.elevation || {};
+            const t = result.terrain || {};
+            const f = result.features || {};
+            html += `<div class="finding-card info"><strong>TERRAIN ANALYSIS</strong> — ${result.source || 'Open-Elevation'}</div>`;
+            html += `<div class="metric-row">
+                <div class="metric"><span class="metric-value">${e.min_m ?? '--'}m</span><span class="metric-label">Min Elevation</span></div>
+                <div class="metric"><span class="metric-value">${e.max_m ?? '--'}m</span><span class="metric-label">Max Elevation</span></div>
+                <div class="metric"><span class="metric-value">${e.mean_m ?? '--'}m</span><span class="metric-label">Mean Elevation</span></div>
+            </div>`;
+            html += `<div class="metric-row">
+                <div class="metric"><span class="metric-value">${t.roughness_m ?? '--'}m</span><span class="metric-label">Roughness</span></div>
+                <div class="metric"><span class="metric-value">${t.mean_slope_deg ?? '--'}°</span><span class="metric-label">Mean Slope</span></div>
+                <div class="metric"><span class="metric-value">${e.range_m ?? '--'}m</span><span class="metric-label">Elevation Range</span></div>
+            </div>`;
+            if (f.ridges?.length) {
+                html += `<div class="finding-card info"><strong>RIDGE FEATURES</strong> — ${f.ridges.length} detected</div>`;
+                f.ridges.slice(0, 3).forEach(r => {
+                    html += `<div class="finding-card info" style="margin-left:12px;font-size:11px;">${r.elevation}m at (${r.lat}, ${r.lon})</div>`;
+                });
+            }
+            if (f.valleys?.length) {
+                html += `<div class="finding-card info"><strong>VALLEY FEATURES</strong> — ${f.valleys.length} detected</div>`;
+                f.valleys.slice(0, 3).forEach(v => {
+                    html += `<div class="finding-card info" style="margin-left:12px;font-size:11px;">${v.elevation}m at (${v.lat}, ${v.lon})</div>`;
+                });
+            }
+            if (result.interpretation) {
+                result.interpretation.forEach(i => { html += `<div class="finding-card info">${i}</div>`; });
+            }
+            if (e.grid) {
+                html += `<div class="finding-card info"><button class="btn-inline" onclick="renderTerrain3D()" style="margin-top:4px;">RENDER 3D TERRAIN</button></div>`;
+                window._lastTerrainGrid = e.grid;
+            }
         }
         el.insertAdjacentHTML('beforeend', html);
+    }
+}
+
+function renderTerrain3D() {
+    const grid = window._lastTerrainGrid;
+    if (!grid || !grid.length) return;
+    const el = document.getElementById('archdb-content');
+    if (el) {
+        el.insertAdjacentHTML('beforeend', '<div id="terrain-3d-chart" style="width:100%;height:350px;margin-top:8px;"></div>');
+        const z = grid;
+        Plotly.newPlot('terrain-3d-chart', [{
+            z: z, type: 'surface',
+            colorscale: [[0, '#010103'], [0.3, '#1a3a5a'], [0.6, '#c8a87c'], [1, '#fff']],
+            contours: { z: { show: true, usecolormap: true, project: { z: true } } },
+        }], {
+            paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
+            font: { color: '#4a5a6a', size: 10 }, margin: { t: 10, r: 10, b: 10, l: 10 },
+            scene: {
+                xaxis: { title: 'Lon', gridcolor: 'rgba(255,255,255,0.05)' },
+                yaxis: { title: 'Lat', gridcolor: 'rgba(255,255,255,0.05)' },
+                zaxis: { title: 'Elevation (m)', gridcolor: 'rgba(255,255,255,0.05)' },
+                bgcolor: 'rgba(0,0,0,0)',
+            },
+        }, { responsive: true, displayModeBar: false });
     }
 }
 
@@ -1277,7 +1357,7 @@ async function aiInterpretEnvironmental() {
     const env = _lastScanData?.environmental || {};
     const el = document.getElementById('env-content');
     if (el) el.insertAdjacentHTML('beforeend', '<div id="ai-env-interp" class="finding-card info" style="margin-top:8px;border-left-color:#c8a87c;">AI interpreting environmental data...</div>');
-    const result = await apiPost('/api/gemini/interpret-environmental', env);
+    const result = await apiPost('/api/gemini/interpret-environmental', { env_data: env });
     const interpEl = document.getElementById('ai-env-interp');
     if (result?.error) {
         if (interpEl) interpEl.outerHTML = `<div class="finding-card warning" style="margin-top:8px;">${result.error}</div>`;
@@ -1338,7 +1418,7 @@ async function viewHistoryScan(index) {
 }
 
 function showNoScanMessage() {
-    const els = ['summary-content', 'anomalies-content', 'structural-content', 'env-content', 'webarchive-content', 'archdb-content', 'weather-content', 'maps-content'];
+    const els = ['summary-content', 'anomalies-content', 'structural-content', 'env-content', 'webarchive-content', 'archdb-content', 'weather-content'];
     els.forEach(id => {
         const el = document.getElementById(id);
         if (el) el.innerHTML = '<div class="empty-state">Run a scan from the Map tab to analyze a location.</div>';
@@ -1371,10 +1451,6 @@ document.querySelectorAll('.nav-btn').forEach(btn => {
         document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
         if (btn.dataset.tab === 'analysis') loadLatestScan();
         if (btn.dataset.tab === 'history') loadHistory();
-        if (btn.dataset.tab === 'signals') {
-            loadSignalsPanels(_lastScanData || getLocationData());
-            loadSpectrumAnalysis();
-            loadEMFieldMap();
-        }
+        if (btn.dataset.tab === 'signals' && _lastScanData) loadSignalsPanels(_lastScanData);
     });
 });

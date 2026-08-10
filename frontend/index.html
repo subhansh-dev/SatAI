@@ -78,6 +78,18 @@
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-9-9"/><path d="M21 3v9h-9"/></svg>
                 <span>Analysis</span>
             </button>
+            <button class="nav-btn" data-tab="environment">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22c4-4 8-7.5 8-12a8 8 0 10-16 0c0 4.5 4 8 8 12z"/></svg>
+                <span>Environment</span>
+            </button>
+            <button class="nav-btn" data-tab="intelligence">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <span>Intelligence</span>
+            </button>
+            <button class="nav-btn" data-tab="archives">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
+                <span>Archives</span>
+            </button>
             <button class="nav-btn" data-tab="terrain">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 22L12 2l10 20H2z"/></svg>
                 <span>Terrain</span>
@@ -175,7 +187,7 @@
         </div>
     </div>
 
-    <!-- Analysis Tab -->
+    <!-- Analysis Tab — Core Results -->
     <div id="tab-analysis" class="tab-content">
         <div class="analysis-layout">
             <div class="panel glass-panel" id="panel-summary">
@@ -183,13 +195,34 @@
                     <span class="panel-label">SCAN SUMMARY</span>
                     <span class="panel-badge" id="confidence-badge">--</span>
                 </div>
+                <div class="signal-desc-bar">
+                    <div class="signal-desc-item">
+                        <span class="signal-desc-icon">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+                        </span>
+                        <span class="signal-desc-text">Master overview of the full scan: satellite source, location, all detection results, and aggregate archaeological confidence score.</span>
+                    </div>
+                </div>
                 <div id="summary-content" class="panel-body">
                     <div class="empty-state">[AWAITING SCAN DATA]</div>
                 </div>
             </div>
+
             <div class="panel glass-panel panel-wide" id="panel-timeseries">
                 <div class="panel-header">
                     <span class="panel-label">VEGETATION & MOISTURE INDEX</span>
+                </div>
+                <div class="signal-desc-bar">
+                    <div class="signal-desc-item">
+                        <span class="signal-desc-icon">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+                        </span>
+                        <span class="signal-desc-text">What it plots: NDVI (vegetation health) and NDWI (soil moisture) over time. Crop marks from buried walls show as vegetation stress anomalies.</span>
+                    </div>
+                    <div class="signal-desc-item signal-desc-good">
+                        <span class="signal-desc-tag">GOOD SIGNAL</span>
+                        <span class="signal-desc-text">NDVI dip + NDWI spike in same area = buried structure affecting water retention. Seasonal pattern = likely archaeological, not natural.</span>
+                    </div>
                 </div>
                 <div id="timeseries-chart" style="width:100%;height:300px;min-height:300px;padding:8px;"></div>
                 <div class="panel-header" style="border-top:1px solid rgba(0,240,255,0.08);">
@@ -197,78 +230,207 @@
                 </div>
                 <div id="timeseries-chart-surface" style="width:100%;height:300px;min-height:300px;padding:8px;"></div>
             </div>
+
             <div class="panel glass-panel" id="panel-anomalies">
                 <div class="panel-header">
                     <span class="panel-label">ANOMALY DETECTION</span>
+                </div>
+                <div class="signal-desc-bar">
+                    <div class="signal-desc-item">
+                        <span class="signal-desc-icon">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                        </span>
+                        <span class="signal-desc-text">Statistical outliers in pixel values (Z-score > 2.5). High anomaly density in a localized cluster strongly suggests buried structures.</span>
+                    </div>
+                    <div class="signal-desc-item signal-desc-good">
+                        <span class="signal-desc-tag">GOOD SIGNAL</span>
+                        <span class="signal-desc-text">>5 anomalies in < 100m radius = high archaeological probability. Anomalies forming linear/geometric pattern = walls/roads.</span>
+                    </div>
                 </div>
                 <div id="anomalies-content" class="panel-body">
                     <div class="empty-state">[NO ANOMALIES DETECTED]</div>
                 </div>
             </div>
+
             <div class="panel glass-panel" id="panel-structural">
                 <div class="panel-header">
                     <span class="panel-label">STRUCTURAL ANALYSIS</span>
+                </div>
+                <div class="signal-desc-bar">
+                    <div class="signal-desc-item">
+                        <span class="signal-desc-icon">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/></svg>
+                        </span>
+                        <span class="signal-desc-text">Geometric pattern detection: looks for linear, rectangular, or circular arrangements in anomaly clusters — hallmarks of human construction.</span>
+                    </div>
+                    <div class="signal-desc-item signal-desc-good">
+                        <span class="signal-desc-tag">GOOD SIGNAL</span>
+                        <span class="signal-desc-text">Anomalies on grid lines or forming right angles = buried walls. Circular pattern = possible amphitheater/fortification.</span>
+                    </div>
                 </div>
                 <div id="structural-content" class="panel-body">
                     <div class="empty-state">[AWAITING INPUT]</div>
                 </div>
             </div>
-            <div class="panel glass-panel" id="panel-weather">
+
+            <div class="panel glass-panel" id="panel-spectral-idx">
                 <div class="panel-header">
-                    <span class="panel-label">SPACE WEATHER</span>
+                    <span class="panel-label">SPECTRAL INDICES</span>
                 </div>
-                <div id="weather-content" class="panel-body">
-                    <div class="empty-state">[LOADING...]</div>
+                <div class="signal-desc-bar">
+                    <div class="signal-desc-item">
+                        <span class="signal-desc-icon">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg>
+                        </span>
+                        <span class="signal-desc-text">Aggregate NDVI, NDWI, and NDBI (built-up index) statistics across the scan area. Useful for quick environmental fingerprinting.</span>
+                    </div>
+                </div>
+                <div id="spectral-idx-content" class="panel-body">
+                    <div class="empty-state">[NDVI, NDWI, NDBI aggregate statistics]</div>
                 </div>
             </div>
-            <div class="panel glass-panel" id="panel-maps">
+
+            <div class="panel glass-panel" id="panel-temporal-change">
                 <div class="panel-header">
-                    <span class="panel-label">HISTORICAL MAPS</span>
+                    <span class="panel-label">TEMPORAL CHANGE DETECTION</span>
                 </div>
-                <div id="maps-content" class="panel-body">
-                    <div class="empty-state">[SELECT LOCATION]</div>
+                <div class="signal-desc-bar">
+                    <div class="signal-desc-item">
+                        <span class="signal-desc-icon">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                        </span>
+                        <span class="signal-desc-text">CUSUM change-point algorithm on the NDVI time series. Detects sudden shifts in vegetation that may indicate recent excavation or land disturbance.</span>
+                    </div>
+                    <div class="signal-desc-item signal-desc-good">
+                        <span class="signal-desc-tag">GOOD SIGNAL</span>
+                        <span class="signal-desc-text">Change point coinciding with dry season = possible illegal excavation. Multiple change points = repeated disturbance.</span>
+                    </div>
+                </div>
+                <div id="temporal-change-content" class="panel-body">
+                    <div class="empty-state">[CUSUM-based change point detection]</div>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <!-- Environment Tab — Soil, Geology, Weather -->
+    <div id="tab-environment" class="tab-content">
+        <div class="analysis-layout">
             <div class="panel glass-panel panel-wide" id="panel-environmental">
                 <div class="panel-header">
                     <span class="panel-label">ENVIRONMENTAL DATA</span>
-                    <button class="btn-inline" onclick="aiInterpretEnvironmental()">AI INTERPRET</button>
+                </div>
+                <div class="signal-desc-bar">
+                    <div class="signal-desc-item">
+                        <span class="signal-desc-icon">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22c4-4 8-7.5 8-12a8 8 0 10-16 0c0 4.5 4 8 8 12z"/></svg>
+                        </span>
+                        <span class="signal-desc-text">Soil type, pH, moisture, elevation, slope, and nearest settlement from SoilGrids, Open-Elevation, and GeoNames. Determines preservation potential.</span>
+                    </div>
+                    <div class="signal-desc-item signal-desc-good">
+                        <span class="signal-desc-tag">GOOD SIGNAL</span>
+                        <span class="signal-desc-text">Clay-rich soil + gentle slope + near water = high preservation. Steep rocky terrain = low burial probability.</span>
+                    </div>
                 </div>
                 <div id="env-content" class="panel-body">
                     <div class="empty-state">[RUN ENVIRONMENTAL SCAN]</div>
                 </div>
             </div>
-            <div class="panel glass-panel panel-wide" id="panel-webarchive">
+
+            <div class="panel glass-panel" id="panel-geology">
                 <div class="panel-header">
-                    <span class="panel-label">WEB ARCHIVES + OSM</span>
+                    <span class="panel-label">GEOLOGICAL CONTEXT</span>
                 </div>
-                <div id="webarchive-content" class="panel-body">
-                    <div class="empty-state">[RUN WEB ARCHIVE SCAN]</div>
+                <div class="signal-desc-bar">
+                    <div class="signal-desc-item">
+                        <span class="signal-desc-icon">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 22L12 2l10 20H2z"/></svg>
+                        </span>
+                        <span class="signal-desc-text">Bedrock type and lithology from USGS. Sedimentary basins often preserve archaeological layers; volcanic terrain can bury sites under lava/mudflow.</span>
+                    </div>
                 </div>
-            </div>
-            <div class="panel glass-panel panel-wide" id="panel-archdb">
-                <div class="panel-header">
-                    <span class="panel-label">ARCHAEOLOGICAL DATABASES</span>
-                    <button class="btn-inline" onclick="aiSynthesizeCrossref()">AI CROSS-REF</button>
-                </div>
-                <div id="archdb-content" class="panel-body">
-                    <div class="empty-state">[RUN FULL SPECTRUM SCAN]</div>
+                <div id="geology-content" class="panel-body">
+                    <div class="empty-state">[Bedrock and lithology data]</div>
                 </div>
             </div>
 
-            <!-- Site Intelligence -->
-            <div class="panel glass-panel panel-wide" id="panel-site-header" style="min-height:auto;padding:12px 16px;background:linear-gradient(90deg,rgba(0,240,255,0.04),transparent);border-bottom:2px solid rgba(0,240,255,0.15);">
-                <span class="panel-label" style="color:var(--accent);">SITE INTELLIGENCE</span>
+            <div class="panel glass-panel" id="panel-water">
+                <div class="panel-header">
+                    <span class="panel-label">WATER PROXIMITY</span>
+                </div>
+                <div class="signal-desc-bar">
+                    <div class="signal-desc-item">
+                        <span class="signal-desc-icon">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2.69l5.66 5.66a8 8 0 11-11.31 0z"/></svg>
+                        </span>
+                        <span class="signal-desc-text">Rivers, lakes, and springs within 5km from HydroSHEDS and GeoNames. Settlements cluster near water — proximity boosts site probability.</span>
+                    </div>
+                </div>
+                <div id="water-content" class="panel-body">
+                    <div class="empty-state">[Find water sources near the site]</div>
+                </div>
             </div>
+
+            <div class="panel glass-panel" id="panel-lightning">
+                <div class="panel-header">
+                    <span class="panel-label">LIGHTNING ACTIVITY</span>
+                </div>
+                <div class="signal-desc-bar">
+                    <div class="signal-desc-item">
+                        <span class="signal-desc-icon">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+                        </span>
+                        <span class="signal-desc-text">Flash density from ENTLN/WWLLN global lightning networks. High lightning activity can affect satellite sensor readings and site preservation.</span>
+                    </div>
+                </div>
+                <div id="lightning-content" class="panel-body">
+                    <div class="empty-state">[Lightning strike data near the site]</div>
+                </div>
+            </div>
+
+            <div class="panel glass-panel" id="panel-weather">
+                <div class="panel-header">
+                    <span class="panel-label">SPACE WEATHER</span>
+                </div>
+                <div class="signal-desc-bar">
+                    <div class="signal-desc-item">
+                        <span class="signal-desc-icon">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+                        </span>
+                        <span class="signal-desc-text">Real-time solar wind, Kp index, and X-ray flux from NOAA SWPC. Geomagnetic storms degrade satellite imagery quality.</span>
+                    </div>
+                </div>
+                <div id="weather-content" class="panel-body">
+                    <div class="empty-state">[LOADING...]</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Intelligence Tab — NDVI, Elevation, Nearby Places -->
+    <div id="tab-intelligence" class="tab-content">
+        <div class="analysis-layout">
             <div class="panel glass-panel" id="panel-ndvi-change">
                 <div class="panel-header">
                     <span class="panel-label">NDVI Change Detection</span>
-                    <button class="btn-inline" onclick="loadNDVIChange()">Compare</button>
+                </div>
+                <div class="signal-desc-bar">
+                    <div class="signal-desc-item">
+                        <span class="signal-desc-icon">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-9-9"/><path d="M21 3v9h-9"/></svg>
+                        </span>
+                        <span class="signal-desc-text">Pixel-by-pixel NDVI difference between two dates. Reveals vegetation anomalies invisible in single-date imagery — the gold standard for crop-mark detection.</span>
+                    </div>
+                    <div class="signal-desc-item signal-desc-good">
+                        <span class="signal-desc-tag">GOOD SIGNAL</span>
+                        <span class="signal-desc-text">Geometric NDVI difference pattern = buried walls affecting crop growth. Linear anomalies = roads or ditches. Diffuse = natural variation.</span>
+                    </div>
                 </div>
                 <div id="ndvi-change-content" class="panel-body">
-                    <div class="empty-state">Compare vegetation between two time periods</div>
+                    <div class="empty-state">[Compare vegetation between two time periods]</div>
                 </div>
             </div>
+
             <div class="panel glass-panel" id="panel-elev-profile">
                 <div class="panel-header">
                     <span class="panel-label">Elevation Cross-Section</span>
@@ -278,71 +440,101 @@
                         <option value="NE-SW">NE–SW</option>
                         <option value="NW-SE">NW–SE</option>
                     </select>
-                    <button class="btn-inline" onclick="loadElevationProfile()">Scan</button>
+                </div>
+                <div class="signal-desc-bar">
+                    <div class="signal-desc-item">
+                        <span class="signal-desc-icon">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 22L12 2l10 20H2z"/></svg>
+                        </span>
+                        <span class="signal-desc-text">Terrain elevation profile along a chosen axis from Open-Elevation. Reveals mounds, platforms, or depressions that may indicate buried structures.</span>
+                    </div>
+                    <div class="signal-desc-item signal-desc-good">
+                        <span class="signal-desc-tag">GOOD SIGNAL</span>
+                        <span class="signal-desc-text">Sharp bump = possible burial mound or platform. Depression = ditch or collapsed structure. Flat with sudden rise = wall remnant.</span>
+                    </div>
                 </div>
                 <div id="elev-profile-chart" class="panel-body chart-area"></div>
             </div>
-            <div class="panel glass-panel" id="panel-water">
-                <div class="panel-header">
-                    <span class="panel-label">Water Proximity</span>
-                    <button class="btn-inline" onclick="loadWaterProximity()">Scan</button>
-                </div>
-                <div id="water-content" class="panel-body">
-                    <div class="empty-state">Find water sources near the site</div>
-                </div>
-            </div>
-            <div class="panel glass-panel" id="panel-geology">
-                <div class="panel-header">
-                    <span class="panel-label">Geological Context</span>
-                    <button class="btn-inline" onclick="loadGeology()">Load</button>
-                </div>
-                <div id="geology-content" class="panel-body">
-                    <div class="empty-state">Bedrock and lithology data</div>
-                </div>
-            </div>
+
             <div class="panel glass-panel" id="panel-places">
                 <div class="panel-header">
                     <span class="panel-label">Nearby Places (GeoNames)</span>
-                    <button class="btn-inline" onclick="loadNearbyPlaces()">Load</button>
+                </div>
+                <div class="signal-desc-bar">
+                    <div class="signal-desc-item">
+                        <span class="signal-desc-icon">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                        </span>
+                        <span class="signal-desc-text">Settlements, ruins, and geographical features within 20km from GeoNames. Ancient place names often preserve historical site identities.</span>
+                    </div>
                 </div>
                 <div id="places-content" class="panel-body">
-                    <div class="empty-state">Nearby settlements and place names</div>
+                    <div class="empty-state">[Nearby settlements and place names]</div>
                 </div>
             </div>
-            <div class="panel glass-panel" id="panel-temporal-change">
+        </div>
+    </div>
+
+    <!-- Archives Tab — Historical, Archaeological, Web -->
+    <div id="tab-archives" class="tab-content">
+        <div class="analysis-layout">
+            <div class="panel glass-panel panel-wide" id="panel-webarchive">
                 <div class="panel-header">
-                    <span class="panel-label">Temporal Change Detection</span>
-                    <button class="btn-inline" onclick="loadTemporalChange()">Analyze</button>
+                    <span class="panel-label">WEB ARCHIVES + OSM</span>
                 </div>
-                <div id="temporal-change-content" class="panel-body">
-                    <div class="empty-state">CUSUM-based change point detection on vegetation time series</div>
+                <div class="signal-desc-bar">
+                    <div class="signal-desc-item">
+                        <span class="signal-desc-icon">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
+                        </span>
+                        <span class="signal-desc-text">Wayback Machine snapshots + OpenStreetMap Overpass data. Historical aerials reveal sites since paved over. OSM tags indicate known ruins/monuments.</span>
+                    </div>
+                    <div class="signal-desc-item signal-desc-good">
+                        <span class="signal-desc-tag">GOOD SIGNAL</span>
+                        <span class="signal-desc-text">Old aerial shows field pattern now gone = recently destroyed site. OSM has "ruins" or "archaeological_site" tag = confirmed by prior survey.</span>
+                    </div>
+                </div>
+                <div id="webarchive-content" class="panel-body">
+                    <div class="empty-state">[RUN WEB ARCHIVE SCAN]</div>
                 </div>
             </div>
-            <div class="panel glass-panel" id="panel-lightning">
-                <div class="panel-header">
-                    <span class="panel-label">Lightning Activity</span>
-                    <button class="btn-inline" onclick="loadLightning()">Scan</button>
-                </div>
-                <div id="lightning-content" class="panel-body">
-                    <div class="empty-state">Lightning strike data near the site</div>
-                </div>
-            </div>
+
             <div class="panel glass-panel" id="panel-hist-maps">
                 <div class="panel-header">
                     <span class="panel-label">Historical Map Sources</span>
-                    <button class="btn-inline" onclick="loadHistoricalMapsStandalone()">Load</button>
+                </div>
+                <div class="signal-desc-bar">
+                    <div class="signal-desc-item">
+                        <span class="signal-desc-icon">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/></svg>
+                        </span>
+                        <span class="signal-desc-text">Links to David Rumsey, Old Maps Online, and British Library historical map collections. Manual overlay can reveal site boundaries lost to time.</span>
+                    </div>
                 </div>
                 <div id="hist-maps-content" class="panel-body">
-                    <div class="empty-state">Historical map overlays and archives</div>
+                    <div class="empty-state">[Historical map overlays and archives]</div>
                 </div>
             </div>
-            <div class="panel glass-panel" id="panel-spectral-idx">
+
+            <div class="panel glass-panel panel-wide" id="panel-archdb">
                 <div class="panel-header">
-                    <span class="panel-label">Spectral Indices</span>
-                    <button class="btn-inline" onclick="loadSpectralIndices()">Compute</button>
+                    <span class="panel-label">ARCHAEOLOGICAL DATABASES</span>
+                    <button class="btn-inline" onclick="aiSynthesizeCrossref()">AI CROSS-REF</button>
                 </div>
-                <div id="spectral-idx-content" class="panel-body">
-                    <div class="empty-state">NDVI, NDWI, NDBI aggregate spectral statistics</div>
+                <div class="signal-desc-bar">
+                    <div class="signal-desc-item">
+                        <span class="signal-desc-icon">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+                        </span>
+                        <span class="signal-desc-text">Pleiades (ancient settlements), OpenContext (excavation data), and arXiv research papers. Cross-references your coordinates against known archaeological records.</span>
+                    </div>
+                    <div class="signal-desc-item signal-desc-good">
+                        <span class="signal-desc-tag">GOOD SIGNAL</span>
+                        <span class="signal-desc-text">Pleiades record within 5km = ancient site known to scholarship. OpenContext excavation nearby = active research area. ArXiv hit = recent remote sensing study.</span>
+                    </div>
+                </div>
+                <div id="archdb-content" class="panel-body">
+                    <div class="empty-state">[RUN FULL SPECTRUM SCAN]</div>
                 </div>
             </div>
         </div>
@@ -377,7 +569,6 @@
             <div class="panel glass-panel panel-wide" id="panel-spectrum">
                 <div class="panel-header">
                     <span class="panel-label">MAGNETIC FIELD (NOAA WMM)</span>
-                    <button class="btn-inline" onclick="loadMagneticField()">LOAD</button>
                 </div>
                 <div class="signal-desc-bar">
                     <div class="signal-desc-item">
@@ -398,7 +589,6 @@
             <div class="panel glass-panel" id="panel-em-field">
                 <div class="panel-header">
                     <span class="panel-label">SAR BACKSCATTER (SENTINEL-1)</span>
-                    <button class="btn-inline" onclick="loadSARBackscatter()">LOAD</button>
                 </div>
                 <div class="signal-desc-bar">
                     <div class="signal-desc-item">
@@ -419,7 +609,6 @@
             <div class="panel glass-panel" id="panel-radio">
                 <div class="panel-header">
                     <span class="panel-label">SOLAR RADIATION (NASA POWER)</span>
-                    <button class="btn-inline" onclick="loadRadioData()">LOAD</button>
                 </div>
                 <div class="signal-desc-bar">
                     <div class="signal-desc-item">
@@ -440,10 +629,7 @@
             <div class="panel glass-panel" id="panel-spectrum-analysis">
                 <div class="panel-header">
                     <span class="panel-label">MAGNETIC FFT SPECTRUM</span>
-                    <div>
-                        <button class="btn-inline" onclick="loadSpectrumAnalysis()">ANALYZE</button>
-                        <button class="btn-inline" onclick="aiInterpretSignal()" style="margin-left:4px;">AI INTERPRET</button>
-                    </div>
+                    <button class="btn-inline" onclick="aiInterpretSignal()">AI INTERPRET</button>
                 </div>
                 <div class="signal-desc-bar">
                     <div class="signal-desc-item">
@@ -464,7 +650,6 @@
             <div class="panel glass-panel" id="panel-em-field-map">
                 <div class="panel-header">
                     <span class="panel-label">MAGNETIC INTENSITY MAP</span>
-                    <button class="btn-inline" onclick="loadEMFieldMap()">SCAN</button>
                 </div>
                 <div class="signal-desc-bar">
                     <div class="signal-desc-item">

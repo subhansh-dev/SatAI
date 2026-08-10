@@ -97,12 +97,102 @@ class ArchaeologicalDB:
         except Exception as e: return {"error": str(e)}
 
     def lidar_dem(self, lat, lon):
+        """Fetch real elevation data and analyze terrain for archaeological features."""
+        import numpy as np
+
+        grid_size = 15
+        offsets = np.linspace(-0.005, 0.005, grid_size)
+        locations = []
+        for dy in offsets:
+            for dx in offsets:
+                locations.append({"latitude": lat + dy, "longitude": lon + dx})
+
         try:
-            api_key = os.environ.get("OPENTOPOGRAPHY_API_KEY", "demoapikeyot2018")
-            resp = self.session.get("https://portal.opentopography.org/api/globaldem", params={"demType":"SRTMGL1","south":str(lat-0.005),"north":str(lat+0.005),"west":str(lon-0.005),"east":str(lon+0.005),"outputFormat":"JSON","API_Key":api_key}, timeout=20)
-            if resp.status_code==200: return {"source":"OpenTopography","available":True,"interpretation":["High-res DEM available."]}
-            return {"source":"OpenTopography","available":False,"interpretation":["No LIDAR coverage. SRTM 30m used."]}
-        except Exception as e: return {"error": str(e)}
+            resp = self.session.post(
+                "https://api.open-elevation.com/api/v1/lookup",
+                json={"locations": locations},
+                timeout=30,
+            )
+            if resp.status_code != 200:
+                return {"error": f"Open-Elevation API returned HTTP {resp.status_code}"}
+
+            results = resp.json().get("results", [])
+            if not results:
+                return {"error": "No elevation data returned."}
+
+            elevations = np.array([r.get("elevation", 0) for r in results]).reshape(grid_size, grid_size)
+
+            grad_y, grad_x = np.gradient(elevations)
+            slope = np.sqrt(grad_xx**2 + grad_yy**2) if False else np.sqrt(grad_x**2 + grad_y**2)
+
+            from scipy.ndimage import maximum_filter, minimum_filter
+            local_max = maximum_filter(elevations, size=5)
+            local_min = minimum_filter(elevations, size=5)
+            ridges = np.where((elevations == local_max) & (elevations > np.mean(elevations) + np.std(elevations)))
+            valleys = np.where((elevations == local_min) & (elevations < np.mean(elevations) - np.std(elevations)))
+
+            roughness = float(np.std(elevations))
+            mean_slope = float(np.mean(slope))
+            elev_range = float(np.max(elevations) - np.min(elevations))
+
+            interpretation = []
+            if roughness > 10:
+                interpretation.append(f"High terrain roughness ({roughness:.1f}m) — rugged landscape, natural features likely")
+            elif roughness > 3:
+                interpretation.append(f"Moderate roughness ({roughness:.1f}m) — mixed terrain, check for artificial modifications")
+            else:
+                interpretation.append(f"Low roughness ({roughness:.1f}m) — flat terrain, ideal for detecting buried structures")
+
+            if elev_range > 50:
+                interpretation.append(f"Large elevation range ({elev_range:.1f}m) — significant terrain relief")
+            elif elev_range > 10:
+                interpretation.append(f"Moderate relief ({elev_range:.1f}m) — possible natural or artificial terracing")
+            else:
+                interpretation.append(f"Minimal relief ({elev_range:.1f}m) — flat area, subtle anomalies detectable")
+
+            ridge_points = []
+            for i, j in zip(ridges[0], ridges[1]):
+                ridge_points.append({
+                    "lat": round(float(lat + offsets[i]), 5),
+                    "lon": round(float(lon + offsets[j]), 5),
+                    "elevation": round(float(elevations[i, j]), 1),
+                })
+
+            valley_points = []
+            for i, j in zip(valleys[0], valleys[1]):
+                valley_points.append({
+                    "lat": round(float(lat + offsets[i]), 5),
+                    "lon": round(float(lon + offsets[j]), 5),
+                    "elevation": round(float(elevations[i, j]), 1),
+                })
+
+            return {
+                "source": "Open-Elevation API (SRTM 30m)",
+                "location": {"lat": lat, "lon": lon},
+                "grid_size": grid_size,
+                "resolution_m": round(float(offsets[1] - offsets[0]) * 111320, 1),
+                "elevation": {
+                    "min_m": round(float(np.min(elevations)), 1),
+                    "max_m": round(float(np.max(elevations)), 1),
+                    "mean_m": round(float(np.mean(elevations)), 1),
+                    "std_m": round(float(np.std(elevations)), 1),
+                    "range_m": round(elev_range, 1),
+                    "grid": elevations.tolist(),
+                },
+                "terrain": {
+                    "roughness_m": round(roughness, 2),
+                    "mean_slope_deg": round(float(np.degrees(np.arctan(mean_slope))), 2),
+                    "ridge_count": len(ridge_points),
+                    "valley_count": len(valley_points),
+                },
+                "features": {
+                    "ridges": ridge_points[:10],
+                    "valleys": valley_points[:10],
+                },
+                "interpretation": interpretation,
+            }
+        except Exception as e:
+            return {"error": str(e)}
 
     def full_db_scan(self, lat, lon, radius_km=50):
         with concurrent.futures.ThreadPoolExecutor(5) as ex:

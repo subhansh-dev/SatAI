@@ -377,6 +377,7 @@ header.scrolled {
     position: fixed;
     top: 52px; left: 0; right: 0; bottom: 0;
     z-index: 1;
+    overflow-y: auto;
 }
 .tab-content.active {
     display: block;
@@ -620,16 +621,15 @@ header.scrolled {
     grid-template-columns: 1fr 1fr;
     gap: 2px;
     padding: 2px;
-    height: calc(100vh - 52px);
-    overflow-y: auto;
+    overflow-y: visible;
     align-content: start;
     background: rgba(200, 168, 124, 0.02);
 }
 .analysis-layout .panel-wide { grid-column: 1 / -1; }
 #panel-summary { grid-column: 1 / -1; }
-#panel-timeseries { grid-column: 1 / -1; min-height: 680px; }
-#panel-anomalies { min-height: 200px; }
-#panel-structural { min-height: 200px; }
+#panel-timeseries { grid-column: 1 / -1; }
+#panel-anomalies { }
+#panel-structural { }
 #panel-weather { min-height: 160px; }
 #panel-maps { min-height: 160px; }
 #panel-environmental { grid-column: 1 / -1; min-height: 200px; }
@@ -711,11 +711,9 @@ header.scrolled {
 
 .panel-body {
     padding: 16px;
-    overflow-y: auto;
-    flex: 1;
 }
 .chart-area { min-height: 300px; padding: 8px; }
-#timeseries-chart, #timeseries-chart-surface { min-height: 300px; height: 300px; }
+#timeseries-chart, #timeseries-chart-surface { min-height: 300px; }
 
 .empty-state {
     font-family: var(--font-mono);
@@ -822,8 +820,7 @@ header.scrolled {
     grid-template-rows: auto 1fr;
     gap: 2px;
     padding: 2px;
-    height: calc(100vh - 52px);
-    overflow-y: auto;
+    overflow-y: visible;
     align-content: start;
     background: rgba(200, 168, 124, 0.02);
 }

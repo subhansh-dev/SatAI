@@ -5,6 +5,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).parent.parent.parent / ".env")
+
 from fastapi import FastAPI, Query, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
