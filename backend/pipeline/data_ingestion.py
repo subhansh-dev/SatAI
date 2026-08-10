@@ -351,102 +351,104 @@ class DataIngestion:
         }
 
     def get_elevation(self, lat: float, lon: float) -> dict:
-        """
-        Fetch real elevation data from Open-Elevation API.
-        Returns elevation in meters for the given coordinates.
-        """
         import requests
-
         try:
-            url = "https://api.open-elevation.com/api/v1/lookup"
-            payload = {"locations": [{"latitude": lat, "longitude": lon}]}
-            resp = requests.post(url, json=payload, timeout=15)
-            if resp.status_code != 200:
-                return {"error": f"Open-Elevation API returned HTTP {resp.status_code}"}
-
-            data = resp.json()
-            results = data.get("results", [])
-            if not results:
-                return {"error": "No elevation data returned for this location."}
-
-            return {
-                "source": "Open-Elevation API (SRTM 30m)",
-                "location": {"lat": lat, "lon": lon},
-                "elevation_m": results[0].get("elevation"),
-            }
-        except requests.exceptions.Timeout:
-            return {"error": "Open-Elevation API timed out."}
-        except requests.exceptions.ConnectionError:
-            return {"error": "Cannot reach Open-Elevation API."}
+            resp = requests.post("https://api.open-elevation.com/api/v1/lookup",
+                                 json={"locations": [{"latitude": lat, "longitude": lon}]}, timeout=15)
+            if resp.status_code == 200:
+                results = resp.json().get("results", [])
+                if results:
+                    return {"source": "Open-Elevation API (SRTM 30m)",
+                            "location": {"lat": lat, "lon": lon},
+                            "elevation_m": results[0].get("elevation")}
+        except Exception:
+            pass
+        try:
+            resp = requests.get(f"https://api.opentopodata.org/v1/srtm90m?locations={lat},{lon}", timeout=15)
+            if resp.status_code == 200:
+                r = resp.json().get("results", [{}])[0]
+                return {"source": "Open Topo Data API (SRTM 90m)",
+                        "location": {"lat": lat, "lon": lon},
+                        "elevation_m": r.get("elevation", 0)}
         except Exception as e:
-            return {"error": f"Elevation fetch failed: {str(e)}"}
+            return {"error": f"Both elevation APIs failed: {e}"}
 
     def get_terrain_grid(self, lat: float, lon: float, grid_size: int = 50, span_deg: float = 0.02) -> dict:
-        """
-        Fetch real elevation grid from Open-Elevation for 3D terrain rendering.
-        Returns a grid_size x grid_size elevation matrix.
-        span_deg: degrees of lat/lon to cover (~2km at equator).
-        """
         import requests
 
-        # Generate grid of coordinates
         lats = np.linspace(lat - span_deg / 2, lat + span_deg / 2, grid_size)
         lons = np.linspace(lon - span_deg / 2, lon + span_deg / 2, grid_size)
 
-        locations = []
-        for la in lats:
-            for lo in lons:
-                locations.append({"latitude": float(la), "longitude": float(lo)})
+        locations = [{"latitude": float(la), "longitude": float(lo)} for la in lats for lo in lons]
 
-        try:
-            # Open-Elevation accepts up to ~1000 locations per request
-            url = "https://api.open-elevation.com/api/v1/lookup"
-            resp = requests.post(url, json={"locations": locations}, timeout=30)
-            if resp.status_code != 200:
-                return {"error": f"Open-Elevation API returned HTTP {resp.status_code}"}
-
-            data = resp.json()
-            results = data.get("results", [])
-            if len(results) != grid_size * grid_size:
-                return {"error": f"Expected {grid_size**2} elevation points, got {len(results)}"}
-
-            # Build elevation grid
-            elevation = np.zeros((grid_size, grid_size))
+        def _build(results):
+            elev = np.zeros((grid_size, grid_size))
             for i in range(grid_size):
                 for j in range(grid_size):
-                    idx = i * grid_size + j
-                    elevation[i][j] = results[idx].get("elevation", 0)
+                    elev[i][j] = results[i * grid_size + j].get("elevation", 0)
+            return elev
 
+        def _analyze(elev):
             from scipy.ndimage import maximum_filter, minimum_filter
-            local_max = maximum_filter(elevation, size=10)
-            local_min = minimum_filter(elevation, size=10)
-            ridges = np.where(elevation == local_max)
-            valleys = np.where(elevation == local_min)
+            lmax = maximum_filter(elev, size=10)
+            lmin = minimum_filter(elev, size=10)
+            return np.where(elev == lmax), np.where(elev == lmin)
 
+        def _result(elev, src, ridges, valleys):
             return {
-                "source": "Open-Elevation API (SRTM 30m)",
+                "source": src,
                 "location": {"lat": lat, "lon": lon},
                 "grid_size": grid_size,
-                "elevation": elevation.tolist(),
-                "min_elevation": round(float(np.min(elevation)), 2),
-                "max_elevation": round(float(np.max(elevation)), 2),
+                "elevation": elev.tolist(),
+                "min_elevation": round(float(np.min(elev)), 2),
+                "max_elevation": round(float(np.max(elev)), 2),
                 "ridge_points": len(ridges[0]),
                 "valley_points": len(valleys[0]),
                 "features": {
                     "ridges": [{"x": int(ridges[1][i]), "y": int(ridges[0][i]),
-                                "elevation": round(float(elevation[ridges[0][i], ridges[1][i]]), 2)}
+                                "elevation": round(float(elev[ridges[0][i], ridges[1][i]]), 2)}
                                for i in range(min(10, len(ridges[0])))],
                     "valleys": [{"x": int(valleys[1][i]), "y": int(valleys[0][i]),
-                                 "elevation": round(float(elevation[valleys[0][i], valleys[1][i]]), 2)}
+                                 "elevation": round(float(elev[valleys[0][i], valleys[1][i]]), 2)}
                                 for i in range(min(10, len(valleys[0])))]
                 }
             }
-        except requests.exceptions.Timeout:
-            return {"error": "Open-Elevation API timed out for grid request. Try smaller grid_size."}
-        except requests.exceptions.ConnectionError:
-            return {"error": "Cannot reach Open-Elevation API."}
+
+        # Primary: Open-Elevation
+        try:
+            resp = requests.post("https://api.open-elevation.com/api/v1/lookup",
+                                 json={"locations": locations}, timeout=30)
+            if resp.status_code == 200:
+                results = resp.json().get("results", [])
+                if len(results) == grid_size * grid_size:
+                    elev = _build(results)
+                    ridges, valleys = _analyze(elev)
+                    return _result(elev, "Open-Elevation API (SRTM 30m)", ridges, valleys)
+        except Exception:
+            pass
+
+        # Fallback: Open Topo Data (SRTM 90m, no key needed)
+        try:
+            import time
+            all_results = []
+            for start in range(0, len(locations), 100):
+                batch = locations[start:start + 100]
+                coords = "|".join(f"{l['latitude']},{l['longitude']}" for l in batch)
+                resp = requests.get(f"https://api.opentopodata.org/v1/srtm90m?locations={coords}", timeout=30)
+                if resp.status_code == 200:
+                    for r in resp.json().get("results", []):
+                        all_results.append({"elevation": r.get("elevation", 0) or 0})
+                else:
+                    return {"error": f"Open Topo Data HTTP {resp.status_code}"}
+                if start + 100 < len(locations):
+                    time.sleep(0.5)
+
+            if len(all_results) == grid_size * grid_size:
+                elev = _build(all_results)
+                ridges, valleys = _analyze(elev)
+                return _result(elev, "Open Topo Data API (SRTM 90m)", ridges, valleys)
         except Exception as e:
-            return {"error": f"Terrain grid fetch failed: {str(e)}"}
+            return {"error": f"Both elevation APIs failed: {e}"}
 
     def _interpret_solar_wind(self, data: list) -> list:
         """Interpret solar wind data for EM implications."""
