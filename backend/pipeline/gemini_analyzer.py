@@ -288,21 +288,74 @@ class GeminiAnalyzer:
             return {"error": "LLM not initialized"}
         system = (
             "You are CHRONOVISOR AI — an archaeological analyst powered by satellite remote sensing. "
-            "Be precise, cite real methods (NDVI thresholds, SAR backscatter physics, soil science). "
-            "When uncertain, say so. Never fabricate archaeological sites."
+            "You have the COMPLETE data of a scan for one specific location loaded in context. "
+            "Answer questions about that scan, its anomalies, findings, scores, data sources, "
+            "and what the data means for that location. Be precise, cite real methods "
+            "(NDVI thresholds, SAR backscatter physics, soil science). When uncertain, say so. "
+            "Never fabricate archaeological sites."
         )
         parts = []
         if scan_context:
             sc = scan_context
+            target = sc.get("scan_target", {})
+            fused = sc.get("fused_assessment", {})
+            summary = sc.get("summary", {})
+            env = sc.get("environmental", {})
+            arch = sc.get("archaeological_db", {})
+            anomalies = sc.get("anomalies", [])
+            structural = sc.get("structural_analysis", {})
+
+            anomalies_summary = "; ".join(
+                f"{a.get('type','unknown')} on {a.get('date','?')} — {a.get('interpretation', a.get('description',''))}"
+                for a in anomalies[:10]
+            ) or "none"
+
+            env_summary_parts = []
+            soil = env.get("soil", {})
+            if isinstance(soil, dict) and "interpretation" in soil:
+                env_summary_parts.append(f"Soil: {soil['interpretation']}")
+            faults = env.get("faults", {})
+            if isinstance(faults, dict) and "interpretation" in faults:
+                env_summary_parts.append(f"Seismic: {faults['interpretation']}")
+            water = env.get("water_table", {})
+            if isinstance(water, dict) and "interpretation" in water:
+                env_summary_parts.append(f"Water: {water['interpretation']}")
+
+            arch_summary_parts = []
+            pleiades = arch.get("pleiades", {})
+            if isinstance(pleiades, dict) and pleiades.get("places"):
+                pnames = [p.get("title", "?") for p in pleiades["places"][:5]]
+                arch_summary_parts.append(f"Pleiades: {', '.join(pnames)}")
+            wikidata = arch.get("wikidata", {})
+            if isinstance(wikidata, dict) and wikidata.get("sites"):
+                wnames = [s.get("name", "?") for s in wikidata["sites"][:5]]
+                arch_summary_parts.append(f"Wikidata: {', '.join(wnames)}")
+            suit = arch.get("suitability", {})
+            if isinstance(suit, dict) and suit.get("score"):
+                arch_summary_parts.append(f"Suitability score: {suit['score']}/100")
+
             parts.append(
-                f"ACTIVE SCAN CONTEXT:\n"
-                f"Location: ({sc.get('scan_target', {}).get('lat', '?')}, "
-                f"{sc.get('scan_target', {}).get('lon', '?')})\n"
-                f"Satellite: {sc.get('satellite', {}).get('data_points', 0)} data points "
-                f"from {sc.get('satellite', {}).get('source', 'unknown')}\n"
-                f"Anomalies: {len(sc.get('anomalies', []))}\n"
-                f"Structural probability: {sc.get('structural_analysis', {}).get('structural_probability', 0)}%\n"
-                f"Fused score: {sc.get('fused_assessment', {}).get('fused_score', 'N/A')}%"
+                "ACTIVE SCAN CONTEXT:\n"
+                f"Location: ({target.get('lat','?')}, {target.get('lon','?')})"
+                f" | Place: {target.get('place_name','unknown')}"
+                f" | Radius: {target.get('radius_m','?')}m\n"
+                f"Data sources: {sc.get('data_sources', {}).get('status', 'n/a')}\n"
+                f"Satellite: {sc.get('satellite', {}).get('data_points', 0)} data points"
+                f" from {sc.get('satellite', {}).get('source', 'unknown')}\n"
+                f"Anomalies detected: {len(anomalies)}\n"
+                f"Anomaly details: {anomalies_summary}\n"
+                f"Structural probability: {structural.get('structural_probability', 0)}%\n"
+                f"Fused score: {fused.get('fused_score', summary.get('archaeological_potential', 'N/A'))}%"
+                f" (confidence: {summary.get('confidence', fused.get('confidence', 'unknown'))})\n"
+                f"Findings: {summary.get('findings', [])}\n"
+                f"Warnings: {summary.get('warnings', [])}\n"
+                f"Recommendation: {summary.get('recommendation', fused.get('recommendation', ''))}\n"
+                + (f"Environmental: {'; '.join(env_summary_parts)}\n" if env_summary_parts else "")
+                + (f"Archaeological DB: {'; '.join(arch_summary_parts)}\n" if arch_summary_parts else "")
+            )
+            parts.append(
+                "FULL SCAN DATA (reference for any detail question):\n"
+                + _safe_json(sc, indent=2)[:14000]
             )
         if history:
             for m in history[-10:]:
@@ -311,7 +364,7 @@ class GeminiAnalyzer:
                 parts.append(f"{role}: {content}")
         parts.append(f"user: {message}")
         try:
-            text = await self._gen(system, "\n\n".join(parts), temperature=0.7, max_tokens=2000)
+            text = await self._gen(system, "\n\n".join(parts), temperature=0.7, max_tokens=3000)
             return {"reply": text, "model": self.model_name, "provider": self.provider}
         except Exception as e:
             return {"error": str(e)}

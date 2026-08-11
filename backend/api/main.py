@@ -540,7 +540,7 @@ async def radio_astronomy(freq_mhz: float = 1420, lat: float = 28.6139, lon: flo
 
 
 @app.get("/api/full-scan")
-async def full_scan(lat: float = Query(...), lon: float = Query(...), radius_m: int = 500, start_date: str = "2017-01-01"):
+async def full_scan(lat: float = Query(...), lon: float = Query(...), radius_m: int = 500, start_date: str = "2017-01-01", place_name: str = ""):
     ts_task = asyncio.create_task(asyncio.to_thread(satellite.get_satellite_timeseries, lat, lon, radius_m, start_date))
     weather_task = asyncio.create_task(asyncio.to_thread(ingestion.get_noaa_space_weather, 3))
     maps_task = asyncio.create_task(asyncio.to_thread(ingestion.get_historical_maps, lat, lon))
@@ -565,7 +565,7 @@ async def full_scan(lat: float = Query(...), lon: float = Query(...), radius_m: 
     lightning_r = await lightning_task
 
     scan_result = safe_json({
-        "scan_target": {"lat": lat, "lon": lon, "radius_m": radius_m},
+        "scan_target": {"lat": lat, "lon": lon, "radius_m": radius_m, "place_name": place_name},
         "satellite": {"source": ts.get("source", "unknown"), "data_points": len(timeseries), "timeseries": timeseries, "error": ts.get("error")},
         "anomalies": anomalies,
         "structural_analysis": structural,
@@ -580,8 +580,11 @@ async def full_scan(lat: float = Query(...), lon: float = Query(...), radius_m: 
         "summary": generate_summary(anomalies, structural, temporal, spectral_r),
     })
 
+    idx = len(scan_history)
+    scan_result["_scan_index"] = idx
+
     scan_history.append({
-        "lat": lat, "lon": lon, "radius_m": radius_m,
+        "lat": lat, "lon": lon, "radius_m": radius_m, "place_name": place_name,
         "anomaly_count": len(anomalies),
         "structural_probability": structural.get("structural_probability", 0),
         "data_points": len(timeseries),
@@ -1015,6 +1018,9 @@ async def mega_scan(
             "archaeological_potential": fused.get("fused_score", 0),
         },
     })
+
+    idx = len(scan_history)
+    result["_scan_index"] = idx
 
     scan_history.append({
         "lat": lat, "lon": lon, "radius_m": radius_m, "place_name": place_name,

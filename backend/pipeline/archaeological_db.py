@@ -296,14 +296,62 @@ class ArchaeologicalDB:
 
 
     def geocode(self, place_name):
+        """Geocode with fallback chain: Nominatim -> Open-Meteo Geocoding -> Photon.
+        Nominatim blocks datacenter IPs (Render/Vercel), so fallbacks keep search alive in production."""
+        errors = []
         try:
-            resp = self.session.get("https://nominatim.openstreetmap.org/search", params={"q": place_name, "format": "json", "limit": 5}, timeout=10)
-            if resp.status_code != 200: return {"error": "Nominatim HTTP "+str(resp.status_code)}
-            results = resp.json()
-            if not results: return {"error": "No results for: "+place_name}
-            places = [{"name": r.get("display_name",""), "lat": float(r.get("lat",0)), "lon": float(r.get("lon",0)), "type": r.get("type","")} for r in results]
-            return {"source": "Nominatim", "query": place_name, "results": places}
-        except Exception as e: return {"error": str(e)}
+            resp = self.session.get(
+                "https://nominatim.openstreetmap.org/search",
+                params={"q": place_name, "format": "json", "limit": 5, "addressdetails": 0},
+                timeout=12,
+            )
+            if resp.status_code == 200:
+                results = resp.json()
+                if results:
+                    places = [{"name": r.get("display_name",""), "lat": float(r.get("lat",0)), "lon": float(r.get("lon",0)), "type": r.get("type","")} for r in results]
+                    return {"source": "Nominatim", "query": place_name, "results": places}
+                errors.append("Nominatim: no results")
+            else:
+                errors.append("Nominatim HTTP " + str(resp.status_code))
+        except Exception as e:
+            errors.append("Nominatim: " + str(e))
+
+        try:
+            resp = self.session.get(
+                "https://geocoding-api.open-meteo.com/v1/search",
+                params={"name": place_name, "count": 5, "language": "en", "format": "json"},
+                timeout=12,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                results = data.get("results") or []
+                if results:
+                    places = [{"name": r.get("name",""), "lat": float(r.get("latitude",0)), "lon": float(r.get("longitude",0)), "type": r.get("feature_code","place")} for r in results]
+                    return {"source": "Open-Meteo Geocoding", "query": place_name, "results": places}
+                errors.append("Open-Meteo: no results")
+            else:
+                errors.append("Open-Meteo HTTP " + str(resp.status_code))
+        except Exception as e:
+            errors.append("Open-Meteo: " + str(e))
+
+        try:
+            resp = self.session.get(
+                "https://photon.komoot.io/api/",
+                params={"q": place_name, "limit": 5},
+                timeout=12,
+            )
+            if resp.status_code == 200:
+                features = (resp.json().get("features") or [])
+                if features:
+                    places = [{"name": f.get("properties",{}).get("name",""), "lat": float(f["geometry"]["coordinates"][1]), "lon": float(f["geometry"]["coordinates"][0]), "type": f.get("properties",{}).get("type","place")} for f in features if f.get("geometry")]
+                    return {"source": "Photon", "query": place_name, "results": places}
+                errors.append("Photon: no results")
+            else:
+                errors.append("Photon HTTP " + str(resp.status_code))
+        except Exception as e:
+            errors.append("Photon: " + str(e))
+
+        return {"error": "All geocoders failed", "details": errors}
 
     def cross_reference(self, lat, lon, radius_km=50):
         try:

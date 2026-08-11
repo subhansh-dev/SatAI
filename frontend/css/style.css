@@ -649,6 +649,31 @@ header.scrolled {
     vertical-align: middle;
 }
 
+.scan-timer {
+    display: none;
+    align-items: center;
+    gap: 6px;
+    margin-top: 6px;
+    padding: 4px 10px;
+    border-radius: 4px;
+    background: rgba(200, 168, 124, 0.06);
+    border: 1px solid rgba(200, 168, 124, 0.12);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--accent-dim);
+    transition: opacity 0.3s;
+    opacity: 0.7;
+}
+.scan-timer.active {
+    opacity: 1;
+    color: var(--accent);
+    border-color: rgba(200, 168, 124, 0.25);
+    box-shadow: 0 0 12px rgba(200, 168, 124, 0.1);
+}
+.scan-timer svg { opacity: 0.6; }
+.scan-timer.active svg { opacity: 1; }
+#scan-timer-text { min-width: 24px; }
+
 /* ═══════ ANALYSIS TAB ═══════ */
 .analysis-layout {
     display: grid;
@@ -689,29 +714,7 @@ header.scrolled {
     box-shadow: var(--neu-raised), 0 0 30px rgba(200, 168, 124, 0.03), inset 0 1px 0 rgba(255, 240, 220, 0.06);
 }
 
-/* Terminal corner markers */
-.panel::before {
-    content: '';
-    position: absolute;
-    top: 0; left: 0;
-    width: 20px; height: 20px;
-    border-top: 2px solid var(--accent);
-    border-left: 2px solid var(--accent);
-    opacity: 0.4;
-    z-index: 3;
-    pointer-events: none;
-}
-.panel::after {
-    content: '';
-    position: absolute;
-    bottom: 0; right: 0;
-    width: 20px; height: 20px;
-    border-bottom: 2px solid var(--accent);
-    border-right: 2px solid var(--accent);
-    opacity: 0.4;
-    z-index: 3;
-    pointer-events: none;
-}
+/* Terminal corner markers — removed */
 
 .panel-header {
     display: flex;

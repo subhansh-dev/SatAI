@@ -8,6 +8,26 @@ let _terrainScene = null;
 let _terrainAnimId = null;
 let _activeTab = 'map';
 let _scanGeneration = 0;
+let _scanTimerInterval = null;
+let _scanTimerStart = 0;
+
+// ─── SCAN TIMER ─────────────────────────────────────
+function startScanTimer() {
+    const el = document.getElementById('scan-timer');
+    _scanTimerStart = Date.now();
+    if (_scanTimerInterval) clearInterval(_scanTimerInterval);
+    const text = document.getElementById('scan-timer-text');
+    if (el) { el.style.display = 'flex'; el.classList.add('active'); }
+    _scanTimerInterval = setInterval(() => {
+        const s = Math.floor((Date.now() - _scanTimerStart) / 1000);
+        if (text) text.textContent = s < 60 ? (s < 10 ? '0' + s : '' + s) + 's' : Math.floor(s/60) + ':' + ((s%60) < 10 ? '0' : '') + (s%60);
+    }, 200);
+}
+function stopScanTimer() {
+    if (_scanTimerInterval) { clearInterval(_scanTimerInterval); _scanTimerInterval = null; }
+    const el = document.getElementById('scan-timer');
+    if (el) { el.classList.remove('active'); setTimeout(() => { el.style.display = 'none'; }, 300); }
+}
 
 function escapeHtml(str) {
     if (str == null) return '';
@@ -286,10 +306,12 @@ async function runFullScan(btn) {
     _scanInProgress = true;
     setBtnLoading(btn, true);
     setStatus('Running full spectrum scan', 'scanning');
+    startScanTimer();
     const gen = ++_scanGeneration;
     const loc = getLocationData();
+    const place = document.getElementById('input-place')?.value || '';
 
-    const fullScanPromise = apiGet(`/api/full-scan?lat=${loc.lat}&lon=${loc.lon}&radius_m=${loc.radius_m}&start_date=${loc.start_date}`);
+    const fullScanPromise = apiGet(`/api/full-scan?lat=${loc.lat}&lon=${loc.lon}&radius_m=${loc.radius_m}&start_date=${loc.start_date}&place_name=${encodeURIComponent(place)}`);
     const panelPromise = loadAllPanelData();
 
     const result = await fullScanPromise;
@@ -297,11 +319,12 @@ async function runFullScan(btn) {
 
     if (result && gen === _scanGeneration) {
         _lastScanData = result;
-        _lastScanData._scanIndex = -1;
+        _lastScanData._scanIndex = result._scan_index ?? -1;
         document.querySelector('[data-tab="analysis"]').click();
         displayFullScanResults(result);
         setTimeout(revealPanels, 100);
     }
+    stopScanTimer();
     _scanInProgress = false;
     setBtnLoading(btn, false);
     setStatus('Scan complete', 'success');
@@ -312,6 +335,7 @@ async function runMegaScan(btn) {
     _scanInProgress = true;
     setBtnLoading(btn, true);
     setStatus('Running mega scan — all sources', 'scanning');
+    startScanTimer();
     const gen = ++_scanGeneration;
     const loc = getLocationData();
     const place = document.getElementById('input-place')?.value || '';
@@ -324,11 +348,12 @@ async function runMegaScan(btn) {
 
     if (result && gen === _scanGeneration) {
         _lastScanData = result;
-        _lastScanData._scanIndex = -1;
+        _lastScanData._scanIndex = result._scan_index ?? -1;
         document.querySelector('[data-tab="analysis"]')?.click();
         displayFullScanResults(result);
         setTimeout(revealPanels, 100);
     }
+    stopScanTimer();
     _scanInProgress = false;
     setBtnLoading(btn, false);
     setStatus('Mega scan complete', 'success');
@@ -650,7 +675,7 @@ async function searchPlace() {
             }
         }
     } else {
-        setStatus('Place not found', 'error');
+        setStatus(result?.error ? 'Search failed: ' + result.error : 'Place not found', 'error');
     }
 }
 
