@@ -19,6 +19,7 @@ from .tools.ground_tool import GroundTool
 from .tools.change_tool import ChangeDescTool
 from .tools.sar_fusion_tool import SARFusionTool
 from .tools.env_tool import EnvScanTool
+from .tools.numeric_tool import NumericTool
 
 logger = logging.getLogger("satai.controller")
 
@@ -35,6 +36,7 @@ class Controller:
         registry.register(GroundTool(self.vlm))
         registry.register(ChangeDescTool(self.vlm))
         registry.register(SARFusionTool(self.vlm))
+        registry.register(NumericTool(self.vlm))
         registry.register(EnvScanTool())
 
     async def classify_task(self, query: str, num_images: int, mode: str) -> str:
