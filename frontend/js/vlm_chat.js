@@ -1,21 +1,20 @@
 /**
  * SatAI — VLM Chat Frontend
- * Handles image upload, chat, and execution trace display.
+ * Handles image upload, chat, mode selection, and execution trace.
  */
 
-// State
-let vlmImages = [];       // base64 strings
+let vlmImages = [];
 let vlmMode = 'auto';
 let vlmSending = false;
+let vlmTraceOpen = false;
 
-// Init
 document.addEventListener('DOMContentLoaded', () => {
     initVLMUpload();
-    initVLMTabs();
+    initVLMModes();
     checkVLMStatus();
 });
 
-// --- Image Upload ---
+// --- Upload ---
 function initVLMUpload() {
     const dz = document.getElementById('vlm-dropzone');
     const fi = document.getElementById('vlm-file-input');
@@ -75,7 +74,7 @@ function vlmUpdatePreview() {
         <div class="vlm-preview-item">
             <img src="data:image/jpeg;base64,${b64}" alt="Image ${i + 1}">
             <button class="vlm-preview-remove" onclick="vlmRemoveImage(${i})" title="Remove">&times;</button>
-            <div class="vlm-preview-label">${i === 0 ? 'Image 1' : i === 1 ? 'Image 2' : `Image ${i+1}`}</div>
+            <div class="vlm-preview-label">${i === 0 ? 'Before' : i === 1 ? 'After' : `Img ${i+1}`}</div>
         </div>
     `).join('');
 }
@@ -85,11 +84,11 @@ function vlmRemoveImage(idx) {
     vlmUpdatePreview();
 }
 
-// --- Mode Toggle ---
-function initVLMTabs() {
-    document.querySelectorAll('.vlm-mode-btn').forEach(btn => {
+// --- Mode Selection ---
+function initVLMModes() {
+    document.querySelectorAll('.vlm-mode-card').forEach(btn => {
         btn.addEventListener('click', () => {
-            document.querySelectorAll('.vlm-mode-btn').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.vlm-mode-card').forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
             vlmMode = btn.dataset.mode;
         });
@@ -102,16 +101,17 @@ function vlmSend() {
     const query = input.value.trim();
     if (!query || vlmSending) return;
     if (vlmImages.length === 0) {
-        vlmAddSystem('Upload at least one image before asking a question.');
+        vlmAddSystem('Upload at least one satellite image before asking a question.');
         return;
     }
 
     vlmAddUser(query);
     input.value = '';
+    input.style.height = 'auto';
     vlmSending = true;
-    document.getElementById('vlm-send-btn').disabled = true;
+    const btn = document.getElementById('vlm-send-btn');
+    if (btn) btn.disabled = true;
 
-    // Call API
     vlmCallAPI(query);
 }
 
@@ -122,18 +122,10 @@ function vlmSuggestion(text) {
 }
 
 async function vlmCallAPI(query) {
-    const payload = {
-        query: query,
-        images: vlmImages,
-        mode: vlmMode,
-    };
-
-    // Add metadata if lat/lon provided
+    const payload = { query, images: vlmImages, mode: vlmMode };
     const lat = document.getElementById('vlm-lat')?.value;
     const lon = document.getElementById('vlm-lon')?.value;
-    if (lat && lon) {
-        payload.metadata = { lat: parseFloat(lat), lon: parseFloat(lon) };
-    }
+    if (lat && lon) payload.metadata = { lat: parseFloat(lat), lon: parseFloat(lon) };
 
     try {
         const resp = await fetch('/vlm/query', {
@@ -142,9 +134,8 @@ async function vlmCallAPI(query) {
             body: JSON.stringify(payload),
         });
         const data = await resp.json();
-
         if (!resp.ok) {
-            vlmAddSystem(`Error ${resp.status}: ${data.detail || data.error || 'Unknown error'}`);
+            vlmAddSystem(`Error ${resp.status}: ${data.detail || data.error || 'Request failed'}`);
         } else {
             vlmAddAssistant(data.response, data.confidence);
             if (data.trace) vlmShowTrace(data.trace);
@@ -153,16 +144,16 @@ async function vlmCallAPI(query) {
         vlmAddSystem(`Network error: ${e.message}`);
     } finally {
         vlmSending = false;
-        document.getElementById('vlm-send-btn').disabled = false;
+        const btn = document.getElementById('vlm-send-btn');
+        if (btn) btn.disabled = false;
     }
 }
 
-// --- Message Rendering ---
+// --- Messages ---
 function vlmAddUser(text) {
     const chat = document.getElementById('vlm-chat');
     const welcome = chat.querySelector('.vlm-welcome');
     if (welcome) welcome.remove();
-
     chat.innerHTML += `
         <div class="vlm-msg vlm-msg-user">
             <div class="vlm-msg-avatar">You</div>
@@ -173,17 +164,18 @@ function vlmAddUser(text) {
 
 function vlmAddAssistant(text, confidence) {
     const chat = document.getElementById('vlm-chat');
-    // Convert markdown-like bold
-    const formatted = escHtml(text).replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br>');
-    const confBadge = confidence != null
+    const formatted = escHtml(text)
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\n/g, '<br>');
+    const conf = confidence != null
         ? `<span class="vlm-conf">${(confidence * 100).toFixed(0)}%</span>`
         : '';
     chat.innerHTML += `
         <div class="vlm-msg vlm-msg-assistant">
             <div class="vlm-msg-avatar">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
             </div>
-            <div class="vlm-msg-body">${formatted} ${confBadge}</div>
+            <div class="vlm-msg-body">${formatted} ${conf}</div>
         </div>`;
     vlmScrollChat();
 }
@@ -202,29 +194,44 @@ function vlmScrollChat() {
     if (chat) chat.scrollTop = chat.scrollHeight;
 }
 
-// --- Execution Trace ---
+// --- Trace ---
 function vlmShowTrace(trace) {
     const panel = document.getElementById('vlm-trace');
     const content = document.getElementById('vlm-trace-content');
+    const summary = document.getElementById('vlm-trace-summary');
     if (!panel || !content) return;
 
     panel.style.display = 'block';
+
+    const toolCount = (trace.tools_invoked || []).length;
+    const totalMs = trace.total_execution_time_ms?.toFixed(0) || '?';
+    if (summary) summary.textContent = `${toolCount} tools, ${totalMs}ms`;
+
     const tools = (trace.tools_invoked || []).map(t => `<span class="vlm-trace-tag">${t}</span>`).join(' ');
-    const toolTime = (trace.tool_outputs || []).map(o =>
-        `<div class="vlm-trace-step">
+    const steps = (trace.tool_outputs || []).map(o => `
+        <div class="vlm-trace-step">
             <span class="vlm-trace-tool">${o.tool_id}</span>
             <span class="vlm-trace-time">${o.execution_time_ms?.toFixed(0) || '?'}ms</span>
             <span class="vlm-trace-conf">${o.confidence != null ? (o.confidence * 100).toFixed(0) : '?'}%</span>
-        </div>`
-    ).join('');
+        </div>
+    `).join('');
 
     content.innerHTML = `
         <div class="vlm-trace-row"><span class="vlm-trace-label">Task:</span> ${trace.task_type}</div>
         <div class="vlm-trace-row"><span class="vlm-trace-label">Tools:</span> ${tools}</div>
-        <div class="vlm-trace-row"><span class="vlm-trace-label">Total:</span> ${trace.total_execution_time_ms?.toFixed(0) || '?'}ms</div>
+        <div class="vlm-trace-row"><span class="vlm-trace-label">Total:</span> ${totalMs}ms</div>
         <div class="vlm-trace-row"><span class="vlm-trace-label">ID:</span> <code>${trace.query_id?.slice(0, 8) || '?'}</code></div>
-        <div class="vlm-trace-steps">${toolTime}</div>
+        <div class="vlm-trace-steps">${steps}</div>
     `;
+}
+
+function vlmToggleTrace() {
+    const content = document.getElementById('vlm-trace-content');
+    const toggle = document.querySelector('.vlm-trace-toggle');
+    if (!content) return;
+    vlmTraceOpen = !vlmTraceOpen;
+    content.style.display = vlmTraceOpen ? 'block' : 'none';
+    if (toggle) toggle.classList.toggle('open', vlmTraceOpen);
 }
 
 function vlmClearChat() {
@@ -232,27 +239,32 @@ function vlmClearChat() {
     if (!chat) return;
     chat.innerHTML = `
         <div class="vlm-welcome">
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.5"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-            <div style="margin-top:12px;font-size:14px;color:var(--text-secondary);font-family:var(--font-mono);">SatAI VLM — Ready</div>
+            <div class="vlm-welcome-icon">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.2">
+                    <circle cx="12" cy="12" r="10"/>
+                    <path d="M12 6v6l4 2"/>
+                </svg>
+            </div>
+            <div class="vlm-welcome-title">SatQuery AI</div>
+            <div class="vlm-welcome-sub">Ready</div>
         </div>`;
-    document.getElementById('vlm-trace').style.display = 'none';
+    const trace = document.getElementById('vlm-trace');
+    if (trace) trace.style.display = 'none';
+    vlmTraceOpen = false;
 }
 
-// --- Status Check ---
+// --- Status ---
 async function checkVLMStatus() {
-    const el = document.getElementById('vlm-status');
+    const dot = document.getElementById('vlm-status-dot');
+    const text = document.getElementById('vlm-status');
     try {
         const resp = await fetch('/vlm/status');
         const data = await resp.json();
-        if (el) {
-            el.textContent = `${data.mode.toUpperCase()} — ${data.model.split('/').pop()} — ${data.available ? 'OK' : 'UNREACHABLE'}`;
-            el.style.color = data.available ? 'var(--accent)' : '#ff4444';
-        }
+        if (text) text.textContent = `${data.mode.toUpperCase()} — ${data.model.split('/').pop()}`;
+        if (dot) dot.className = 'vlm-status-dot ' + (data.available ? 'online' : 'offline');
     } catch (e) {
-        if (el) {
-            el.textContent = 'OFFLINE';
-            el.style.color = '#ff4444';
-        }
+        if (text) text.textContent = 'offline';
+        if (dot) dot.className = 'vlm-status-dot offline';
     }
 }
 
