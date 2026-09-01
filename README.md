@@ -1,289 +1,218 @@
 <p align="center">
   <br>
-  <img src="https://img.shields.io/badge/SIH-2025-blue?style=for-the-badge" alt="sih">
-  <img src="https://img.shields.io/badge/PS-SIH1563--NTRO-red?style=for-the-badge" alt="ps">
-  <img src="https://img.shields.io/badge/version-0.6.0-green?style=for-the-badge" alt="version">
-  <img src="https://img.shields.io/badge/API-70%2B-orange?style=for-the-badge" alt="endpoints">
-  <img src="https://img.shields.io/badge/AI-Cerebras--120B-purple?style=for-the-badge" alt="ai">
-  <img src="https://img.shields.io/badge/data-24--sources-yellow?style=for-the-badge" alt="sources">
+  <img src="https://img.shields.io/badge/SIH-2026-blue?style=for-the-badge" alt="sih">
+  <img src="https://img.shields.io/badge/PS-SIH26167--ISRO-red?style=for-the-badge" alt="ps">
+  <img src="https://img.shields.io/badge/version-1.0.0-green?style=for-the-badge" alt="version">
+  <img src="https://img.shields.io/badge/VLM-Qwen2.5--VL--7B-purple?style=for-the-badge" alt="vlm">
+  <img src="https://img.shields.io/badge/tools-8-specialist-orange?style=for-the-badge" alt="tools">
+  <img src="https://img.shields.io/badge/APIs-24--free-yellow?style=for-the-badge" alt="apis">
   <br><br>
 </p>
 
 ```
-CHRONOVISOR v0.6.0
-Multi-Source Satellite Intelligence Platform
-for Change Detection & Anomaly Analysis
+SatAI v1.0.0
+SatQuery AI — Agentic Vision-Language Assistant
+for Multimodal Remote Sensing Image Analysis
 ```
 
 <p align="center">
-  <b>Problem Statement: Automatic Change Detection in Synthetic Aperture Radar (SAR) Satellite Images</b><br>
-  Ministry: National Technical Research Organisation (NTRO) &nbsp;|&nbsp; PS ID: SIH1563 &nbsp;|&nbsp; Category: Software &nbsp;|&nbsp; Theme: Space Technology
+  <b>Problem Statement: An Interactive Vision-Language Assistant for Multimodal Remote Sensing Image Analysis through Text Queries</b><br>
+  Organization: ISRO (Indian Space Research Organisation, Department of Space) &nbsp;|&nbsp; PS ID: SIH26167 &nbsp;|&nbsp; Category: Software &nbsp;|&nbsp; Theme: Space Technology
 </p>
 
 ---
 
-## What is this?
+## What is SatAI?
 
-A platform that takes a location on a map and tells you whether the changes you're seeing in satellite imagery are man-made or natural. It pulls data from 24 different sources — SAR radar, optical, thermal, soil, seismic, magnetic, historical archives — and fuses them into a single score with confidence rating.
+SatAI is an **agentic vision-language assistant** that analyzes satellite imagery through natural-language queries. It automatically routes queries to the right specialist tools and returns evidence-grounded answers with full execution traces.
 
-The core problem it solves: SAR change detection gives you a change map, but 40%+ of those "changes" are just floods, vegetation, or snow. This filters those out.
+### Three Mandatory Input Modes
 
----
-
-## The actual problem (from NTRO)
-
-> *"Change detection between two SAR images is straightforward if co-registered — the difference or ratio gives the change map. But such maps invariably have many natural changes (water body extent, flood extent, snow cover, forest cover). Our interest is to detect only man-made changes and avoid natural changes."*
->
-> — NTRO, Smart India Hackathon 2025
-
-So the challenge isn't "can you detect changes" — it's "can you ignore the noise." That's what this project does.
-
----
-
-## How it works
-
-The main thing is a 7-component weighted scoring engine. When you scan a location, it pulls data from multiple sources and combines them:
-
-```
-┌─────────────────────────────────────┐
-│     MULTI-SOURCE FUSION ENGINE      │
-│        (Weighted 7-Layer Scoring)   │
-└─────────────────────────────────────┘
-                      │
-        ┌─────────────┼─────────────┐
-        │             │             │
-   SAR Change    Optical/     Environmental
-   Detection     Thermal      Context
-        │             │             │
-        └─────────────┼─────────────┘
-                      │
-        ┌─────────────▼─────────────┐
-        │  FUSED SCORE: 0-100%      │
-        │  + Confidence rating      │
-        │  + GeoJSON export         │
-        └───────────────────────────┘
-```
-
-The 7 components and their weights:
-
-| Component | Weight | What it does |
+| Mode | Input | Output |
 |---|---|---|
-| Satellite anomalies | 35% | NDVI/thermal/SAR patterns from Sentinel-1/2 |
-| Soil preservation | 20% | Clay content, pH, organic carbon — clay preserves structures, sand doesn't |
-| Seismic filter | 10% | Penalizes active fault zones (geological noise) |
-| Water table | 10% | Shallow water distorts thermal readings |
-| OSM historical | 10% | Known sites = confirmed man-made |
-| Temporal consistency | 10% | Real structures persist, natural changes don't |
-| Web archive evidence | 5% | Academic papers = validated sites |
+| **Single Image** | One optical/multispectral OR SAR image | VQA + captioning OR grounding |
+| **Cross-Modal Pair** | Co-registered optical + SAR | Joint information extraction |
+| **Bi-Temporal Pair** | Two images of same area, different dates | Change description / change-VQA |
 
-There are also stacking modifiers: high clay content adds 35%, active seismic zones subtract 25%, nearby archaeological sites add 30%.
-
----
-
-## NTRO requirements mapping
-
-This is the most important part — every requirement from the problem statement has a corresponding implementation:
-
-| NTRO Requirement | What I Built |
-|---|---|
-| SAR change detection between co-registered images | Sentinel-1 GRD backscatter time series + NDVI change detection |
-| Filter out natural changes (floods, vegetation, snow) | Seismic filter, soil preservation, water table, OSM context |
-| Detect man-made changes only | 7-component weighted fusion with environmental modifiers |
-| User-adjustable thresholds | Configurable in config.py + UI controls |
-| Polygon output (GeoJSON/Shapefile) | `/api/export/json` returns GeoJSON with polygons |
-| Scalable for large areas | Async FastAPI + parallel fetches + GEE backend |
-| GUI for area specification | Leaflet map with click-to-scan, radius, date range |
-| Runs on Google Earth Engine | GEE integration with demo fallback |
-
----
-
-## Data sources (24 free APIs)
-
-I'm pulling from 24 different free/public APIs. Here's what each one does:
-
-### SAR & Satellite
-- **Sentinel-1 SAR** (10m) — radar backscatter, the core signal for PS1563
-- **Sentinel-2** (10m) — optical, vegetation stress, crop marks
-- **Landsat 8** (30m) — thermal, surface temperature anomalies
-
-### Environmental (the false positive filter)
-- **ISRIC SoilGrids** — clay/sand/silt/pH at 250m
-- **USGS Earthquakes** — seismic activity nearby
-- **NOAA WMM** — magnetic field intensity (nT)
-- **NASA POWER** — solar radiation baseline
-- **Open-Elevation** — SRTM 30m terrain
-- **Open-Meteo** — historical weather
-- **ESA WorldCover** — land use at 10m
-- **WorldPop** — population density
-
-### Archaeological & Cultural
-- **Wikidata (Pleiades)** — ancient sites, temples
-- **GBIF** — species occurrences
-- **Wayback Machine** — prior research
-- **OpenStreetMap** — historic buildings & heritage
-- **NASA VIIRS** — nighttime lights
-- **Macrostrat** — geological formations
-
-All of these are free. No paid APIs.
-
----
-
-## The dashboard
-
-9 tabs in a dark terminal-themed UI:
-
-| Tab | What's in it |
-|---|---|
-| **Map** | Leaflet dark tiles, click-to-scan, place search, configurable satellite source/radius/date, export |
-| **Analysis** | Fused score (0-100%), NDVI/thermal charts, anomaly detection with "Explain" buttons, structural analysis |
-| **Environment** | Soil data, geological context, water proximity, lightning, space weather |
-| **Intelligence** | NDVI change detection between two periods, elevation profiles, nearby places |
-| **Archives** | Wayback Machine, OSM historic, archaeological databases, suitability scoring |
-| **Terrain** | 3D elevation model (SRTM 30m) with wireframe overlay and anomaly markers |
-| **Signals** | Magnetic gradient, SAR backscatter, solar radiation, FFT analysis, EM field heatmap |
-| **AI Analyst** | Full scan interpretation, anomaly explanations (3 hypotheses), investigation plan, chat |
-| **History** | Scan history (200 scans), compare scans, batch scan + rank by suitability |
-
----
-
-## API endpoints
-
-70+ endpoints. Here are the important ones:
-
-### Core (directly solves PS1563)
-```
-GET  /api/mega-scan              Full spectrum (15 parallel sources)
-GET  /api/sar/backscatter        Sentinel-1 VV/VH time series
-GET  /api/site/ndvi-change       Vegetation change between periods
-POST /api/satellite/anomalies    Anomaly detection + classification
-GET  /api/export/json            GeoJSON export with polygons
-```
-
-### Environmental & Archaeological
-```
-GET  /api/env/soil               ISRIC SoilGrids
-GET  /api/env/faults             USGS earthquake data
-GET  /api/arch/pleiades          Ancient sites (Wikidata SPARQL)
-GET  /api/arch/crossref          Cross-reference all databases
-POST /api/arch/batch             Batch scan + rank locations
-```
-
-### AI
-```
-POST /api/gemini/analyze         Full AI interpretation
-POST /api/gemini/explain-anomaly 3 ranked hypotheses per anomaly
-POST /api/gemini/chat            Conversational AI with scan context
-GET  /api/llm/status             Provider/model status
-```
-
-Full interactive docs at **http://localhost:8500/docs** (auto-generated by FastAPI)
-
----
-
-## Tech stack
+### Architecture
 
 ```
-Backend:   Python 3.9+, FastAPI, NumPy, SciPy
-Frontend:  Leaflet, Plotly.js, Three.js, GSAP
-AI:        Cerebras GOPT-120B (or OpenRouter/Groq/Gemini)
-SAR:       Google Earth Engine (Sentinel-1 GRD)
-Data:      24 free public APIs, zero paid dependencies
-```
-
----
-
-## Architecture
-
-```
-Frontend (HTML/JS/CSS — dark terminal aesthetic)
+User Query (text + images)
     │
-    │ 70+ HTTP endpoints + WebSocket
     ▼
-FastAPI Server (backend/api/main.py — 1,294 lines)
-    │
-    ├── SatelliteEngine ──── Google Earth Engine (Sentinel-1/2, Landsat 8)
-    ├── AIReconstructor ◄── scipy/numpy (the brain)
-    │       └── fuse_all_data() ← 7-component weighted fusion
-    ├── DataIngestion ───── NOAA, NASA POWER, Open-Elevation, OSM
-    ├── EnvironmentalData ─ ISRIC SoilGrids, USGS Earthquakes, WorldPop
-    ├── ArchaeologicalDB ── Wikidata SPARQL, GBIF, NOAA WMM, VIIRS
-    ├── HistoricalWeb ───── Internet Archive CDX, OSM Overpass
-    ├── SignalProcessor ─── scipy FFT, spectrogram, interpolation
-    └── GeminiAnalyzer ──── Multi-provider LLM (Cerebras/Groq/OpenRouter/Gemini)
+┌─────────────────────┐
+│   AGENTIC CONTROLLER│
+│                     │
+│ - Classify task     │
+│ - Select tools      │
+│ - Execute pipeline  │
+│ - Merge results     │
+└─────────┬───────────┘
+          │
+          ▼
+┌─────────────────────┐
+│   SPECIALIST TOOLS  │
+│                     │
+│ - VQA               │  Single-image questions
+│ - Caption           │  Scene description
+│ - Ground            │  Object localization (OBB)
+│ - Change Desc       │  Bi-temporal analysis
+│ - SAR Fusion        │  Cross-modal analysis
+│ - Numeric           │  Quantitative answers
+│ - Env Scan          │  24 environmental APIs
+│ - Segment           │  Change masks (planned)
+└─────────┬───────────┘
+          │
+          ▼
+┌─────────────────────┐
+│  EXECUTION SUMMARY  │
+│                     │
+│ - Task classified   │
+│ - Tools invoked     │
+│ - Confidence scores │
+│ - GeoJSON export    │
+└─────────────────────┘
 ```
 
-8 backend modules, each handling a specific pipeline stage. The main.py file (1,294 lines) wires everything together with 70+ FastAPI routes.
-
----
-
-## Code breakdown
-
-| What | Lines | Where |
-|---|---|---|
-| Backend (all modules) | 5,371 | `backend/` |
-| Frontend JS | 1,496 | `frontend/js/app.js` |
-| Frontend CSS | 1,323 | `frontend/css/style.css` |
-| Frontend HTML | 749 | `frontend/index.html` |
-| Tests | 170 | `tests/test_api.py` |
-| Notebooks | 438 | `notebooks/` |
-| **Total** | **9,547** | |
-
----
-
-## Getting started
+## Quick Start
 
 ```bash
-git clone https://github.com/subhansh-dev/chronovisor.git
-cd chronovisor
-pip install -e .
-cp .env.example .env  # add CEREBRAS_API_KEY (free tier available)
-python run.py
-# → http://localhost:8500
-```
+cd SatAI
 
-**Demo mode:** All 70+ endpoints work without GEE authentication. I built a synthetic satellite data generator that produces realistic timeseries with seasonal patterns. This means the demo never fails — no API keys needed for the demo.
-
-**Production with real satellite data (GEE):**
-
-The service account key is at `backend/credentials/gee-service-account.json`. For local use, it's already configured in `.env`.
-
-For Render deployment:
-1. Go to Render Dashboard → Your Service → Environment
-2. Add env var `GOOGLE_APPLICATION_CONTENTS` with the full JSON content of the service account key
-3. The app auto-detects this and authenticates with GEE on startup
-
-```bash
+# Install dependencies
 pip install -r requirements.txt
-uvicorn backend.api.main:app --host 0.0.0.0 --port $PORT
+
+# Run the server
+python run.py
+
+# Open browser
+# http://localhost:8500
+# Click "SatAI VLM" tab
 ```
 
-First request after idle: ~30-50s wake-up. After that: fast.
+### VLM Configuration
 
----
+```bash
+# Cloud mode (development)
+VLM_MODE=cloud
+OPENROUTER_API_KEY=your_key_here
 
-## What makes this different from most SIH submissions
+# Local mode (ISRO finals — air-gapped)
+VLM_MODE=local
+VLM_LOCAL_URL=http://localhost:8000/v1
+```
 
-Most teams solving this problem submit a Jupyter notebook with Sentinel-1 differencing. That gives you a change map with 40%+ false alarms.
+### Start Local VLM Server
 
-This is a full-stack web application that:
-1. Pulls from 24 sources instead of 1
-2. Fuses them with a weighted scoring engine
-3. Has a GUI that non-technical users can actually use
-4. Exports GeoJSON (the format NTRO asked for)
-5. Has AI interpretation on top of the ML analysis
-6. Works offline in demo mode
+```bash
+# Requires GPU with 12+ GB VRAM
+python -m vllm.entrypoints.openai.api_server \
+    --model Qwen/Qwen2.5-VL-7B-Instruct \
+    --tensor-parallel-size 1 \
+    --quantization awq \
+    --port 8000
+```
 
-The key insight: you can't solve the false alarm problem with SAR alone. You need environmental context to filter out natural changes.
+## Fine-Tuning
 
----
+```bash
+# Download BigEarthNet dataset first
+# Then fine-tune with LoRA
+python scripts/train_lora.py --dataset bigearthnet --epochs 3 --batch_size 4 --quantize
+
+# Or dry-run to check config
+python scripts/train_lora.py --dataset bigearthnet --dry_run
+```
+
+## Evaluation
+
+```bash
+# VRSBench (captioning, grounding, VQA)
+python -m vlm.eval.eval_vrsbench --data_dir data/vrsbench --mode caption
+python -m vlm.eval.eval_vrsbench --data_dir data/vrsbench --mode grounding
+python -m vlm.eval.eval_vrsbench --data_dir data/vrsbench --mode vqa
+
+# RSVQA (remote sensing VQA)
+python -m vlm.eval.eval_rsvqa --data_dir data/rsvqa
+
+# CDVQA (change detection VQA)
+python -m vlm.eval.eval_cdvqa --data_dir data/cdvqa
+```
+
+## Project Structure
+
+```
+SatAI/
+├── backend/
+│   ├── api/
+│   │   └── main.py              # FastAPI app + 70+ routes
+│   ├── vlm/                      # VLM integration (NEW)
+│   │   ├── vlm_client.py         # Cloud ↔ Local VLM interface
+│   │   ├── controller.py         # Agentic task router
+│   │   ├── tool_registry.py      # Specialist tool registry
+│   │   ├── schemas.py            # Pydantic models
+│   │   ├── routes.py             # FastAPI VLM endpoints
+│   │   ├── tools/                # 8 specialist tools
+│   │   │   ├── vqa_tool.py       # Single-image VQA
+│   │   │   ├── caption_tool.py   # Image captioning
+│   │   │   ├── ground_tool.py    # Visual grounding (OBB)
+│   │   │   ├── change_tool.py    # Bi-temporal change analysis
+│   │   │   ├── sar_fusion_tool.py# Optical-SAR cross-modal
+│   │   │   ├── numeric_tool.py   # Numeric answers
+│   │   │   ├── env_tool.py       # 24 environmental APIs
+│   │   │   └── base.py           # Base tool class
+│   │   ├── lora/                 # LoRA adapters
+│   │   └── eval/                 # Evaluation scripts
+│   │       ├── eval_vrsbench.py  # VRSBench eval
+│   │       ├── eval_rsvqa.py     # RSVQA eval
+│   │       └── eval_cdvqa.py     # CDVQA eval
+│   └── pipeline/                 # Existing modules (kept)
+├── frontend/
+│   ├── index.html                # 10-tab dark terminal UI
+│   ├── js/
+│   │   ├── app.js                # Main app logic
+│   │   └── vlm_chat.js           # VLM chat interface
+│   └── css/style.css             # Dark terminal aesthetic
+├── scripts/
+│   └── train_lora.py             # LoRA fine-tuning
+├── data/                         # Datasets (gitignored)
+├── models/                       # Model weights (gitignored)
+├── AGENTS.md                     # Full project spec
+├── requirements.txt
+└── run.py
+```
+
+## Tech Stack
+
+| Component | Technology |
+|---|---|
+| VLM | Qwen2.5-VL-7B-Instruct |
+| Fine-tuning | LoRA / QLoRA (rank=16, alpha=32) |
+| Serving | vLLM (local) or OpenRouter (cloud) |
+| Backend | FastAPI + Python 3.9+ |
+| Frontend | HTML/CSS/JS (dark terminal) |
+| Evaluation | VRSBench, RSVQA, CDVQA |
+| Environmental APIs | 24 free-tier APIs |
+
+## Mandatory Requirements Checklist
+
+- [x] Remote-sensing VLM adaptation (BigEarthNet LoRA)
+- [x] Single-image VQA (mandatory)
+- [x] Single-image captioning OR grounding
+- [x] Multi-image change analysis
+- [x] Cross-modal optical-SAR analysis
+- [x] Agentic orchestration (auto tool selection)
+- [x] Auditable execution summary
+- [x] Interactive GUI
+- [x] GeoJSON export
+- [x] Self-hosted (air-gapped capable)
+
+## Problem Statement
+
+**SIH26167** — ISRO
+
+An agentic vision-language assistant for analyzing single and paired remote-sensing images through natural-language queries. The system must accept natural-language queries, automatically route to specialist models, return evidence-grounded results, and provide auditable execution summaries.
 
 ## License
 
-MIT
-
----
-
-<p align="center">
-  <sub>Built for Smart India Hackathon 2025 — NTRO PS1563</sub><br>
-  <sub>Multi-source satellite intelligence. Zero false alarm compromise.</sub>
-</p>
+Internal use — Smart India Hackathon 2026
