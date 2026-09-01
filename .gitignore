@@ -8,3 +8,24 @@ node_modules/
 server.log
 server_err.log
 backend/credentials/*.json
+
+# Spec files (keep out of repo, keep README.md)
+AGENTS.md
+*.md
+!README.md
+
+# Model weights (too large for git)
+models/
+*.pt
+*.safetensors
+*.bin
+*.ckpt
+
+# Datasets (large, download separately)
+data/bigearthnet/
+data/vrsbench/
+data/cdvqa/
+data/second/
+
+# vLLM artifacts
+vllm_output/

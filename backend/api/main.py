@@ -20,6 +20,7 @@ from collections import defaultdict
 import time as _time
 from datetime import datetime, timezone
 
+from vlm.routes import router as vlm_router
 from pipeline.satellite_engine import SatelliteEngine
 from pipeline.signal_processor import SignalProcessor
 from pipeline.data_ingestion import DataIngestion
@@ -47,9 +48,11 @@ def safe_json(data):
     return json.loads(json.dumps(data, cls=NumpyEncoder))
 
 
-app = FastAPI(title="CHRONOVISOR", description="Temporal Archaeology Engine", version="0.6.0")
+app = FastAPI(title="SatAI — ISRO SIH26167", description="Agentic Vision-Language Assistant for Remote Sensing", version="1.0.0")
 
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+
+app.include_router(vlm_router)
 
 
 _rate_limit_store = defaultdict(list)
