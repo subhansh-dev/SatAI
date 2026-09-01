@@ -4,21 +4,19 @@ FastAPI router for vision-language queries.
 """
 import base64
 import logging
-from pathlib import Path
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, HTTPException, UploadFile, File
 from typing import Optional
 
 from vlm.controller import Controller
+from vlm.tool_registry import registry
 from vlm.schemas import (
-    VLMQuery, VLMResponse, VLMStatus, InputMode,
+    VLMQuery, VLMResponse, VLMStatus,
     CaptionRequest, GroundRequest, ChangeRequest, SARFusionRequest,
 )
 
 logger = logging.getLogger("satai.api")
 router = APIRouter(prefix="/vlm", tags=["VLM"])
 
-# Lazy-init controller on first request
 _controller: Optional[Controller] = None
 
 
@@ -39,7 +37,7 @@ async def vlm_status():
         mode=ctrl.vlm.mode,
         model=ctrl.vlm.active_model,
         available=health,
-        tools=[t for t in registry.list_tools()],
+        tools=registry.list_tools(),
     )
 
 
@@ -63,11 +61,8 @@ async def vlm_query(query: VLMQuery):
 @router.post("/caption")
 async def caption(req: CaptionRequest):
     """Generate a caption for satellite images."""
-    ctrl = await get_controller()
-    tool = ctrl.registry.get("caption") if hasattr(ctrl, "registry") else None
-    if not tool:
-        from vlm.tools.caption_tool import CaptionTool
-        tool = CaptionTool(ctrl.vlm)
+    await get_controller()
+    tool = registry.get("caption")
     result = await tool.execute(images=req.images)
     return result
 
@@ -75,9 +70,8 @@ async def caption(req: CaptionRequest):
 @router.post("/ground")
 async def ground(req: GroundRequest):
     """Locate objects with bounding boxes."""
-    ctrl = await get_controller()
-    from vlm.tools.ground_tool import GroundTool
-    tool = GroundTool(ctrl.vlm)
+    await get_controller()
+    tool = registry.get("ground")
     result = await tool.execute(query=req.query, images=req.images, output_format=req.output_format)
     return result
 
@@ -85,9 +79,8 @@ async def ground(req: GroundRequest):
 @router.post("/change")
 async def change(req: ChangeRequest):
     """Describe changes between two images."""
-    ctrl = await get_controller()
-    from vlm.tools.change_tool import ChangeDescTool
-    tool = ChangeDescTool(ctrl.vlm)
+    await get_controller()
+    tool = registry.get("change_desc")
     result = await tool.execute(query=req.query, images=req.images)
     return result
 
@@ -95,9 +88,8 @@ async def change(req: ChangeRequest):
 @router.post("/sar-fusion")
 async def sar_fusion(req: SARFusionRequest):
     """Analyze optical + SAR pair."""
-    ctrl = await get_controller()
-    from vlm.tools.sar_fusion_tool import SARFusionTool
-    tool = SARFusionTool(ctrl.vlm)
+    await get_controller()
+    tool = registry.get("sar_fusion")
     result = await tool.execute(query=req.query, images=[req.optical_image, req.sar_image])
     return result
 
@@ -110,7 +102,3 @@ async def upload_image(file: UploadFile = File(...)):
         raise HTTPException(status_code=413, detail="Image too large (max 20MB)")
     b64 = base64.b64encode(data).decode()
     return {"base64": b64, "filename": file.filename, "size_bytes": len(data)}
-
-
-# Import here to avoid circular import at module level
-from vlm.tool_registry import registry

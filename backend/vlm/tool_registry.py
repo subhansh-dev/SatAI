@@ -14,11 +14,12 @@ class Tool(Protocol):
 # Task -> (tool_ids) mapping
 TASK_TOOLS: dict[str, list[str]] = {
     "single_vqa":       ["vqa"],
+    "single_vqa_count": ["numeric"],
     "single_caption":   ["caption"],
     "single_ground":    ["ground"],
     "bi_change":        ["change_desc"],
     "bi_change_vqa":    ["change_desc", "vqa"],
-    "cross_modal":      ["sar_fusion"],
+    "cross_modal":      ["sar_fusion", "ground"],
     "env_analysis":     ["env_scan"],
     "compound":         ["vqa", "change_desc", "env_scan"],
 }

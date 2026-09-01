@@ -5,7 +5,6 @@ an auditable execution summary.
 """
 import logging
 import time
-import json
 from typing import Optional
 from .vlm_client import VLMClient
 from .tool_registry import registry
@@ -198,3 +197,6 @@ class Controller:
 
     async def close(self):
         await self.vlm.close()
+        env_tool = registry.get("env_scan")
+        if env_tool and hasattr(env_tool, "close"):
+            await env_tool.close()

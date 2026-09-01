@@ -48,7 +48,7 @@ class NumericTool(BaseTool):
             "metadata": {"numeric_answer": numeric_val},
         }, start)
 
-    def _extract_answer(self, text: str) -> float | None:
+    def _extract_answer(self, text: str):
         """Extract numeric value from ANSWER: line."""
         match = re.search(r"ANSWER:\s*([+-]?\d+\.?\d*)", text, re.IGNORECASE)
         if match:

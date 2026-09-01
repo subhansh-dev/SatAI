@@ -214,12 +214,12 @@ function vlmShowTrace(trace) {
         `<div class="vlm-trace-step">
             <span class="vlm-trace-tool">${o.tool_id}</span>
             <span class="vlm-trace-time">${o.execution_time_ms?.toFixed(0) || '?'}ms</span>
-            <span class="vlm-trace-conf">${(o.confidence * 100).toFixed(0)}%</span>
+            <span class="vlm-trace-conf">${o.confidence != null ? (o.confidence * 100).toFixed(0) : '?'}%</span>
         </div>`
     ).join('');
 
     content.innerHTML = `
-        <div class="vlm-trace-row"><span class="vlm-trace-label">Task:</span> ${trace.task_type}</span></div>
+        <div class="vlm-trace-row"><span class="vlm-trace-label">Task:</span> ${trace.task_type}</div>
         <div class="vlm-trace-row"><span class="vlm-trace-label">Tools:</span> ${tools}</div>
         <div class="vlm-trace-row"><span class="vlm-trace-label">Total:</span> ${trace.total_execution_time_ms?.toFixed(0) || '?'}ms</div>
         <div class="vlm-trace-row"><span class="vlm-trace-label">ID:</span> <code>${trace.query_id?.slice(0, 8) || '?'}</code></div>

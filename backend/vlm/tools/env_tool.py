@@ -14,7 +14,6 @@ logger = logging.getLogger("satai.env")
 APIS = {
     "open_meteo": "https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,precipitation,wind_speed_10m,relative_humidity_2m&timezone=auto",
     "elevation": "https://api.open-elevation.com/api/v1/lookup?locations={lat},{lon}",
-    "ocean_temp": "https://www7海水温度 API placeholder — disabled for now",
     "air_quality": "https://air-quality-api.open-meteo.com/v1/air-quality?latitude={lat}&longitude={lon}&current=us_aqi,pm10,pm2_5&timezone=auto",
     "earthquake": "https://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson&latitude={lat}&longitude={lon}&maxradiuskm=50&limit=5",
 }
