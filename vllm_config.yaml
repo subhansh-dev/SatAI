@@ -1,0 +1,41 @@
+# SatAI — vLLM Serving Configuration
+# Qwen2.5-VL-7B-Instruct for ISRO SIH26167
+#
+# Usage:
+#   python -m vllm.entrypoints.openai.api_server --config vllm_config.yaml
+#   OR
+#   python -m vllm.entrypoints.openai.api_server \
+#     --model Qwen/Qwen2.5-VL-7B-Instruct \
+#     --tensor-parallel-size 1 \
+#     --quantization awq \
+#     --max-model-len 4096 \
+#     --port 8000
+
+model: "Qwen/Qwen2.5-VL-7B-Instruct"
+served-model-name: "satai-vlm"
+
+# Parallelism
+tensor-parallel-size: 1
+pipeline-parallel-size: 1
+
+# Quantization (4-bit for 12GB VRAM)
+quantization: "awq"
+
+# Memory
+max-model-len: 4096
+gpu-memory-utilization: 0.9
+
+# Serving
+host: "0.0.0.0"
+port: 8000
+
+# VLM-specific
+trust-remote-code: true
+max-num-seqs: 4
+max-context-len-to-model-ratio: 0.5
+
+# Logging
+log-level: "info"
+
+# Health check
+health-check-interval: 30
