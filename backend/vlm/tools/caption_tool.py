@@ -1,36 +1,47 @@
-"""
-SatAI — Caption Tool
-Generate detailed scene descriptions for satellite images.
-"""
-import time
+"""SatAI — Captioning / scene-description tool (PS single-image task option A)."""
+from __future__ import annotations
+
+from typing import Any, Dict
+
 from .base import BaseTool
+
+SYSTEM = (
+    "You are SatAI, an expert remote-sensing scene-description engine. You "
+    "produce structured, evidence-grounded descriptions of satellite and "
+    "aerial images (optical, multispectral, SAR). Follow the exact output "
+    "skeleton you are given, be quantitative where possible, and never "
+    "invent objects that are not visible.\n"
+    "End your reply with a final line `CONFIDENCE: <0-100>`."
+)
 
 
 class CaptionTool(BaseTool):
     tool_id = "caption"
-    description = "Generate a detailed caption describing the satellite image"
-    required_inputs = ["image"]
+    description = ("Land-cover and scene description: dominant classes, major "
+                   "objects, spatial layout — PS single-image task option A.")
+    required_images = 1
+    ps_requirement = "Single-image task: captioning / scene description"
 
-    def __init__(self, vlm_client):
-        self.vlm = vlm_client
-
-    async def execute(self, images: list = None, **kwargs) -> dict:
-        start = time.time()
-        images = images or []
-
-        prompt = (
-            "Provide a detailed caption for this remote sensing / satellite image. "
-            "Include:\n"
-            "- Land cover types (urban, agricultural, forest, water, barren, etc.)\n"
-            "- Key objects (buildings, roads, vehicles, ships, aircraft, infrastructure)\n"
-            "- Spatial layout and relationships\n"
-            "- Notable features, patterns, or anomalies\n\n"
-            "Be comprehensive but concise (3-5 sentences)."
+    async def execute(self, query: str = "", images: list[str] = (),
+                      **params) -> Dict[str, Any]:
+        focus = query.strip() or "Describe this image."
+        user = (
+            f"Produce a remote-sensing scene description for the attached image.\n"
+            f"User emphasis: {focus}\n\n"
+            "Use exactly this skeleton:\n"
+            "SCENE OVERVIEW: <1-2 sentences — environment type, apparent "
+            "setting (urban/rural/coastal/etc.), approximate development level>\n"
+            "LAND COVER: <dominant classes with rough percentages, e.g. "
+            "built-up ~30%, vegetation ~45%, water ~10%, bare soil ~15%>\n"
+            "MAJOR OBJECTS: <bullet list of identifiable features: roads, "
+            "buildings, fields, rivers, ships, aircraft, clouds...>\n"
+            "SPATIAL PATTERN: <how the classes are arranged, orientation, "
+            "edges of scene>\n"
+            "SENSOR NOTES: <apparent resolution, sensor type guess "
+            "(optical/SAR/multispectral), artifacts, season if inferable>\n"
+            "End with `CONFIDENCE: <0-100>`."
         )
-
-        resp = await self.vlm.query(
-            messages=[{"role": "user", "content": prompt}],
-            images=images[:1],
-        )
-        caption = resp.get("choices", [{}])[0].get("message", {}).get("content", "")
-        return self._wrap({"text": caption, "confidence": 0.85}, start)
+        text, conf, meta = await self.ask(SYSTEM, user, images[:1],
+                                          max_tokens=640)
+        return {"text": text, "confidence": conf, "model": meta["model"],
+                "metadata": {"self_reported": meta["self_reported_confidence"]}}

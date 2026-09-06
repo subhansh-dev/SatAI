@@ -1,47 +1,52 @@
 """
-SatAI — SAR-Optical Fusion Tool
-Cross-modal analysis combining optical and SAR imagery.
+SatAI — Cross-modal optical + SAR fusion tool (PS mandatory pair analysis).
+Extracts complementary information: optical gives colour/texture/context,
+SAR gives structure/roughness/moisture and is cloud- and night-independent.
 """
-import time
+from __future__ import annotations
+
+from typing import Any, Dict
+
 from .base import BaseTool
+
+SYSTEM = (
+    "You are SatAI-Fusion, a specialist in joint analysis of co-registered "
+    "optical and SAR imagery. Image 1 is the OPTICAL source (true/multi "
+    "colour), Image 2 is the SAR source (radar backscatter, speckled gray or "
+    "false-colour polarisation composite). Reason about what each sensor "
+    "contributes and what only their combination reveals: built-up areas "
+    "(bright radar doubles + optical roofs), water (dark SAR + optical tone), "
+    "vegetation, flooded vegetation, roughness, moisture, ships vs containers, "
+    "shadow vs smooth surfaces. End with `CONFIDENCE: <0-100>`."
+)
 
 
 class SARFusionTool(BaseTool):
     tool_id = "sar_fusion"
-    description = "Analyze co-registered optical + SAR pair for complementary information extraction"
-    required_inputs = ["optical_image", "sar_image"]
+    description = ("Optical + SAR co-registered pair analysis: complementary "
+                   "extraction of built-up, water, vegetation, flood and "
+                   "surface-roughness information.")
+    required_images = 2
+    ps_requirement = "Mandatory: cross-modal (optical + SAR) paired-image analysis"
 
-    def __init__(self, vlm_client):
-        self.vlm = vlm_client
-
-    async def execute(self, query: str = "", images: list = None, **kwargs) -> dict:
-        start = time.time()
-        images = images or []
-
-        prompt = (
-            "You are analyzing a PAIR of co-registered satellite images of the same area:\n"
-            "- Image 1: OPTICAL (visible/near-infrared)\n"
-            "- Image 2: SAR (synthetic aperture radar)\n\n"
-            "Use BOTH modalities together to provide a comprehensive analysis:\n"
-            "- Built-up areas (visible in optical, bright in SAR)\n"
-            "- Water bodies (dark in optical with spectral signature, very dark in SAR)\n"
-            "- Vegetation (green in optical, textured in SAR)\n"
-            "- Bare soil/rock (visible in optical, smooth in SAR)\n"
-            "- Flooded areas (darker in SAR than usual)\n\n"
-            "The SAR image reveals what optical cannot: surface roughness, moisture content, "
-            "structure beneath vegetation, and anything hidden by clouds.\n\n"
-            "Provide a unified analysis that fuses information from both sensors."
+    async def execute(self, query: str, images: list[str],
+                      **params) -> Dict[str, Any]:
+        user = (
+            "Joint optical (image 1) + SAR (image 2) analysis task.\n"
+            f"User query: {query}\n\n"
+            "Reply using exactly this skeleton:\n"
+            "OPTICAL OBSERVATIONS: <colour, texture, visible land cover>\n"
+            "SAR OBSERVATIONS: <backscatter patterns, bright/dark signatures, "
+            "speckle, artificial doubles>\n"
+            "JOINT FINDINGS: <bullet list combining both: e.g. built-up regions "
+            "confirmed by radar doubles, calm water dark in both, flooded "
+            "vegetation (dark optical + bright SAR)>\n"
+            "BUILT-UP AREAS: <where and how confident>\n"
+            "WATER-COVERED AREAS: <where and how confident>\n"
+            "CAVEATS: <registration, resolution mismatch, speckle, layover>\n"
+            "End with `CONFIDENCE: <0-100>`."
         )
-        if query:
-            prompt += f"\n\nSpecific query: {query}"
-
-        resp = await self.vlm.query(
-            messages=[{"role": "user", "content": prompt}],
-            images=images[:2],
-        )
-        text = resp.get("choices", [{}])[0].get("message", {}).get("content", "")
-        return self._wrap({
-            "text": text,
-            "confidence": 0.8,
-            "metadata": {"mode": "crossmodal", "sensors": ["optical", "sar"]},
-        }, start)
+        text, conf, meta = await self.ask(SYSTEM, user, images[:2],
+                                          max_tokens=768)
+        return {"text": text, "confidence": conf, "model": meta["model"],
+                "metadata": {"self_reported": meta["self_reported_confidence"]}}

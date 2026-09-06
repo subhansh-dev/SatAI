@@ -1,47 +1,63 @@
 """
-SatAI — Change Description Tool
-Bi-temporal change detection: describe what changed between two dates.
+SatAI — Bi-temporal change analysis tool (PS mandatory multi-image task).
+Change description + change-based VQA in one structured pass, so a question
+like "What changed between these two dates and where?" is answered directly.
+A heuristic spatial change map (visual_evidence.render_change_map) is added
+by the controller as visual evidence.
 """
-import time
+from __future__ import annotations
+
+from typing import Any, Dict
+
 from .base import BaseTool
+
+SYSTEM = (
+    "You are SatAI-Change, a bi-temporal remote-sensing change analyst. You "
+    "compare two co-registered images of the same area captured on different "
+    "dates (optical, SAR, or mixed) and report precisely what changed, where, "
+    "in which direction, and how strongly — or state confidently that no "
+    "significant change is visible. Beware: seasonal/illumination differences "
+    "are NOT land-cover change; sensor differences between optical and SAR "
+    "are NOT change either. End your reply with `CONFIDENCE: <0-100>`."
+)
 
 
 class ChangeDescTool(BaseTool):
     tool_id = "change_desc"
-    description = "Describe changes between two satellite images of the same area"
-    required_inputs = ["before_image", "after_image"]
+    description = ("Bi-temporal change description and change-based VQA from "
+                   "two images of the same area (PS mandatory multi-image task).")
+    required_images = 2
+    ps_requirement = "Mandatory: multitemporal change understanding + change-VQA"
 
-    def __init__(self, vlm_client):
-        self.vlm = vlm_client
+    async def execute(self, query: str, images: list[str],
+                      metadata: Dict[str, Any] | None = None, **params) -> Dict[str, Any]:
+        metadata = metadata or {}
+        dates = metadata.get("dates") or []
+        date_a, date_b = (dates + ["Image 1", "Image 2"])[:2]
+        specific = bool(query and query.strip() and
+                        query.strip().lower() not in
+                        ("what changed between these two dates?", "what changed?"))
 
-    async def execute(self, query: str = "", images: list = None, **kwargs) -> dict:
-        start = time.time()
-        images = images or []
-
-        prompt = (
-            "You are analyzing two satellite images of the SAME geographic area taken at "
-            "different times. Image 1 is the BEFORE image; Image 2 is the AFTER image.\n\n"
-            "Describe ALL observable changes between the two dates:\n"
-            "- New construction or demolition\n"
-            "- Vegetation changes (deforestation, new growth, crop changes)\n"
-            "- Water body changes (expansion, drying, flooding)\n"
-            "- Road/infrastructure changes\n"
-            "- Land cover transitions\n"
-            "- Any other notable differences\n\n"
-            "For each change, state: WHAT changed, WHERE (relative location), and HOW MUCH "
-            "(estimate area if possible).\n\n"
-            "Be precise and systematic."
+        user = (
+            "You receive two remote-sensing images of the SAME area.\n"
+            f"- BEFORE: {date_a}\n- AFTER: {date_b}\n\n"
+            f"User question: {query.strip() or 'What changed between these two dates, and where?'}\n\n"
+            "Reply using exactly this skeleton:\n"
+            "CHANGE SUMMARY: <2-3 sentence verdict: what changed overall, or "
+            "'no significant change' if that is the case>\n"
+            "CHANGED AREAS: <bullet list; for each: location in scene (e.g. "
+            "upper-left, centre-east), class transition (e.g. vegetation -> "
+            "built-up, water -> dry land), and approximate extent>\n"
+            "DIRECTION: <increase / decrease / appeared / disappeared per class>\n"
+            "MAGNITUDE: <minor / moderate / major + rough % of scene affected>\n"
+            "CONFUSERS: <seasonal, illumination, sensor or registration effects "
+            "that could mimic change here>\n"
+            + ("Directly answer the user's specific question in the summary.\n"
+               if specific else "")
+            + "End with `CONFIDENCE: <0-100>`."
         )
-        if query:
-            prompt += f"\n\nAdditional focus: {query}"
-
-        resp = await self.vlm.query(
-            messages=[{"role": "user", "content": prompt}],
-            images=images[:2],
-        )
-        text = resp.get("choices", [{}])[0].get("message", {}).get("content", "")
-        return self._wrap({
-            "text": text,
-            "confidence": 0.75,
-            "metadata": {"mode": "bitemporal", "num_images": len(images[:2])},
-        }, start)
+        text, conf, meta = await self.ask(SYSTEM, user, images[:2],
+                                          max_tokens=768)
+        return {"text": text, "confidence": conf, "model": meta["model"],
+                "metadata": {"dates": [str(date_a), str(date_b)],
+                             "self_reported": meta["self_reported_confidence"]}}

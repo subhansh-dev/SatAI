@@ -1,33 +1,40 @@
-"""
-SatAI — VQA Tool
-Single-image visual question answering.
-"""
-import time
+"""SatAI — Single-image VQA tool (PS mandatory baseline)."""
+from __future__ import annotations
+
+from typing import Any, Dict
+
 from .base import BaseTool
+
+SYSTEM = (
+    "You are SatAI, an expert remote-sensing analyst specialising in satellite "
+    "and aerial imagery (optical, multispectral and SAR). You answer visual "
+    "questions precisely, referencing what is actually visible. Consider "
+    "typical RS characteristics: land-cover classes (built-up, cropland, "
+    "forest, grassland, wetland, water, bare soil), object scale, resolution, "
+    "sensor artefacts, shadows and seasonality. Be factual and concise. If "
+    "something is not determinable from the image, say so explicitly.\n"
+    "Formatting rules: answer the question directly in 1-4 short paragraphs. "
+    "Quantities must be specific. End your reply with a final line "
+    "`CONFIDENCE: <0-100>` estimating how confident you are in the answer."
+)
 
 
 class VQATool(BaseTool):
     tool_id = "vqa"
-    description = "Answer natural-language questions about a single satellite image"
-    required_inputs = ["image", "query"]
+    description = ("Single-image visual question answering about satellite/"
+                   "aerial imagery — the PS mandatory baseline task.")
+    required_images = 1
+    ps_requirement = "Mandatory: single-image VQA"
 
-    def __init__(self, vlm_client):
-        self.vlm = vlm_client
-
-    async def execute(self, query: str = "", images: list = None, **kwargs) -> dict:
-        start = time.time()
-        images = images or []
-
-        prompt = (
-            "You are a remote sensing expert analyzing satellite imagery. "
-            "Answer the following question precisely and concisely based on what you see. "
-            "If uncertain, state your uncertainty.\n\n"
-            f"Question: {query}"
+    async def execute(self, query: str, images: list[str],
+                      **params) -> Dict[str, Any]:
+        user = (
+            f"Remote-sensing image analysis task.\n"
+            f"User question: {query}\n\n"
+            "Answer the question about the attached image. Use precise "
+            "remote-sensing vocabulary. End with `CONFIDENCE: <0-100>`."
         )
-
-        resp = await self.vlm.query(
-            messages=[{"role": "user", "content": prompt}],
-            images=images[:1],
-        )
-        answer = resp.get("choices", [{}])[0].get("message", {}).get("content", "")
-        return self._wrap({"text": answer, "confidence": 0.8}, start)
+        text, conf, meta = await self.ask(SYSTEM, user, images[:1],
+                                          max_tokens=768)
+        return {"text": text, "confidence": conf, "model": meta["model"],
+                "metadata": {"self_reported": meta["self_reported_confidence"]}}

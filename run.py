@@ -1,36 +1,42 @@
-#!/usr/bin/env python3
 """
-CHRONOVISOR — Entry Point
-Run: python run.py
+SatAI — SatQuery AI · Launcher
+python run.py   →  http://localhost:8500
 """
 import sys
-import os
+from pathlib import Path
 
-# Add backend to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'backend'))
+BACKEND = Path(__file__).resolve().parent / "backend"
+sys.path.insert(0, str(BACKEND))
 
-# Load .env BEFORE importing anything that reads env vars
-from core.config import API_HOST, API_PORT
+import uvicorn  # noqa: E402
 
-from api.main import app, satellite, ai, gemini
+from core import config  # noqa: E402
+
+BANNER = r"""
+   ___    _____  _____  ___
+  / _ |  / ___/ / ___/ / _ \    SatQuery AI — Agentic Vision-Language
+ / __ | _\ \   / /__  / // /    Assistant for Multimodal Remote Sensing
+/_/ |_|/___/  \___/ /____/      PS SIH26167 · ISRO · SpaceTech
+
+  VLM mode  : {mode}
+  Model     : {model}
+  URL       : http://{host}:{port}   (docs at /docs)
+"""
 
 if __name__ == "__main__":
-    import uvicorn
+    print(BANNER.format(
+        mode=config.VLM_MODE,
+        model=config.VLM_MODEL if config.VLM_MODE == "local" else config.CLOUD_MODEL,
+        host=config.API_HOST, port=config.API_PORT))
 
-    print("=" * 60)
-    print("  CHRONOVISOR — Temporal Archaeology Engine")
-    print("=" * 60)
-    print()
+    if config.VLM_MODE == "cloud" and not config.OPENROUTER_API_KEY:
+        print("  ⚠  VLM_MODE=cloud but OPENROUTER_API_KEY is not set.")
+        print("     Copy .env.example → .env and add your key (cloud dev mode),")
+        print("     or set VLM_MODE=local with a running vLLM server.\n")
 
-    # Initialize engines
-    satellite.initialize()
-    ai.load_models()
-    gemini.initialize()
-
-    print()
-    print("  Dashboard: http://localhost:8500")
-    print("  API Docs:  http://localhost:8500/docs")
-    print()
-    print("=" * 60)
-
-    uvicorn.run(app, host=API_HOST, port=API_PORT)
+    uvicorn.run(
+        "api.main:app",
+        host=config.API_HOST,
+        port=config.API_PORT,
+        log_level="info",
+    )
