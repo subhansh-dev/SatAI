@@ -458,7 +458,11 @@ function attachChromeHandlers() {
     sb.classList.toggle('collapsed');
     localStorage.setItem('satai_sidebar', sb.classList.contains('collapsed') ? '0' : '1');
   });
-  if (localStorage.getItem('satai_sidebar') === '0') $('sidebar').classList.add('collapsed');
+  // Sidebar starts collapsed unless the user explicitly reopened it —
+  // on narrow screens it is an overlay drawer, so keep it closed by default there.
+  const sbPref = localStorage.getItem('satai_sidebar');
+  const narrow = window.matchMedia('(max-width: 900px)').matches;
+  if (sbPref === '0' || (sbPref !== '1' && narrow)) $('sidebar').classList.add('collapsed');
 }
 
 function lightbox(src) {

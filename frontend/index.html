@@ -3,29 +3,45 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SatAI — SatQuery AI · SIH26167</title>
-    <meta name="description" content="Agentic Vision-Language Assistant for Multimodal Remote Sensing Image Analysis — ISRO SIH26167">
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><circle cx='12' cy='12' r='10' fill='%230e1a2b'/><path d='M12 4v8l5.5 3' stroke='%2347b6ff' stroke-width='2' fill='none' stroke-linecap='round'/></svg>">
+    <title>SatQuery AI · ISRO — Department of Space | SIH 2026</title>
+    <meta name="description" content="Interactive Vision-Language Assistant for Multimodal Remote Sensing Image Analysis — ISRO / Department of Space, Smart India Hackathon 2026 (PS 26167)">
+    <link rel="icon" type="image/svg+xml" href="/static/assets/isro_logo.svg">
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
 
-<!-- ======================= Top bar ======================= -->
+<!-- ======================= Government identity strip ======================= -->
+<div class="gov-strip" role="banner">
+    <div class="gov-left">
+        <span class="gov-hi">भारत सरकार</span>
+        <span class="gov-sep" aria-hidden="true"></span>
+        <span class="gov-en">Government of India</span>
+    </div>
+    <div class="gov-right">
+        <span class="gov-en">Department of Space</span>
+        <span class="gov-sep" aria-hidden="true"></span>
+        <span class="gov-hi">अंतरिक्ष विभाग</span>
+    </div>
+</div>
+<div class="tricolor" aria-hidden="true"></div>
+
+<!-- ======================= Application header ======================= -->
 <header class="topbar">
     <div class="topbar-left">
-        <div class="logo-mark" aria-hidden="true">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-                <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.4"/>
-                <path d="M12 4v8l5.5 3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
-                <circle cx="12" cy="12" r="1.6" fill="currentColor"/>
-            </svg>
-        </div>
+        <button class="sidebar-toggle" id="sidebarToggle" type="button" aria-label="Toggle sidebar">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+        </button>
+        <span class="crest" aria-hidden="true">
+            <img src="/static/assets/isro_logo.svg" alt="ISRO emblem" draggable="false">
+        </span>
+        <span class="crest-divider" aria-hidden="true"></span>
         <div class="brand">
-            <span class="brand-name">SatAI</span>
-            <span class="brand-sub">SatQuery AI · PS SIH26167 · ISRO</span>
+            <span class="brand-name">SatQuery&nbsp;AI</span>
+            <span class="brand-sub">Interactive Vision-Language Assistant for Multimodal Remote Sensing Image Analysis</span>
         </div>
     </div>
     <div class="topbar-right">
+        <span class="ps-badge" title="Smart India Hackathon 2026 · Problem Statement 26167">SIH&nbsp;2026&nbsp;·&nbsp;PS&nbsp;26167</span>
         <div class="status-chip" id="statusChip" title="VLM backend status">
             <span class="status-dot" id="statusDot"></span>
             <span id="statusText">checking…</span>
@@ -40,7 +56,7 @@
     <!-- ---------------- Sidebar ---------------- -->
     <aside class="sidebar" id="sidebar">
         <section class="side-section">
-            <h3 class="side-title">Pipeline</h3>
+            <h3 class="side-title">Analysis Pipeline</h3>
             <ol class="pipeline-list" id="pipelineList">
                 <li data-step="validate"><span class="step-dot"></span>Validate inputs</li>
                 <li data-step="classify"><span class="step-dot"></span>Classify query</li>
@@ -52,13 +68,13 @@
         </section>
 
         <section class="side-section">
-            <h3 class="side-title">Specialist tools</h3>
+            <h3 class="side-title">Specialist Tools</h3>
             <div class="tools-list" id="toolsList"><span class="dim">loading…</span></div>
         </section>
 
         <section class="side-section side-grow">
             <div class="side-title-row">
-                <h3 class="side-title">History</h3>
+                <h3 class="side-title">Query History</h3>
                 <button class="mini-btn" id="historyRefresh" type="button" title="Refresh">↻</button>
             </div>
             <div class="history-list" id="historyList">
@@ -67,14 +83,10 @@
         </section>
 
         <footer class="side-foot">
-            <span>Agentic RS VLM · BigEarthNet-adapted</span>
+            <span>Indian Space Research Organisation</span>
             <span id="sideVersion">v2.0</span>
         </footer>
     </aside>
-
-    <button class="sidebar-toggle" id="sidebarToggle" type="button" aria-label="Toggle sidebar">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
-    </button>
 
     <!-- ---------------- Main column ---------------- -->
     <main class="main">
@@ -82,15 +94,16 @@
         <!-- Chat -->
         <div class="chat" id="chat">
             <div class="welcome" id="welcome">
-                <div class="welcome-icon">
-                    <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.2">
-                        <circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>
-                    </svg>
-                </div>
+                <span class="welcome-crest" aria-hidden="true">
+                    <img src="/static/assets/isro_logo.svg" alt="" draggable="false">
+                </span>
+                <div class="tricolor-rule" aria-hidden="true"></div>
                 <h1>SatQuery AI</h1>
-                <p class="welcome-sub">Upload satellite imagery (optical, SAR, GeoTIFF, or a bi-temporal / optical+SAR pair)
-                    and ask a question. The controller validates inputs, picks specialist tools, and returns an answer
-                    with visual evidence, confidence and a downloadable audit report.</p>
+                <p class="welcome-kicker">Department of Space · Smart India Hackathon 2026 · Problem Statement 26167</p>
+                <p class="welcome-sub">Upload satellite imagery — optical, SAR, GeoTIFF, or a bi-temporal / optical+SAR pair —
+                    and pose a query in natural language. The controller validates inputs, classifies the task, routes it to
+                    specialist tools from the registry, and returns an answer with visual evidence, a confidence estimate and
+                    a downloadable audit report.</p>
                 <div class="examples" id="examples">
                     <button class="chip" data-q="Describe the land cover and the main objects visible in this image." data-mode="single">Describe scene &amp; main objects</button>
                     <button class="chip" data-q="Highlight the water bodies I asked about with bounding boxes." data-mode="single">Highlight water bodies</button>
@@ -147,7 +160,10 @@
 <div class="modal-backdrop" id="aboutModal" hidden>
     <div class="modal">
         <div class="modal-head">
-            <h2>SatQuery AI — PS SIH26167</h2>
+            <span class="modal-crest" aria-hidden="true">
+                <img src="/static/assets/isro_logo.svg" alt="" draggable="false">
+            </span>
+            <h2>SatQuery AI — PS 26167</h2>
             <button class="mini-btn" id="aboutClose" type="button">✕</button>
         </div>
         <div class="modal-body">
