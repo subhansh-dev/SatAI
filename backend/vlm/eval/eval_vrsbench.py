@@ -1,188 +1,186 @@
 """
-SatAI — VRSBench Evaluation
-Evaluates on VRSBench: captioning, visual grounding, VQA.
+SatAI — VRSBench Evaluation (captioning · grounding · VQA)
 
-Usage:
-    python -m vlm.eval.eval_vrsbench --data_dir data/vrsbench --mode caption
-    python -m vlm.eval.eval_vrsbench --data_dir data/vrsbench --mode grounding
-    python -m vlm.eval.eval_vrsbench --data_dir data/vrsbench --mode vqa
+Metrics: BLEU-1..4 / METEOR / ROUGE-L / CIDEr (self-contained), Acc@0.5/0.7
+grounding IoU against absolute-pixel GT boxes, normalised VQA accuracy.
+
+Usage (from repo root):
+    python -m backend.vlm.eval.eval_vrsbench --data_dir data/vrsbench --mode caption
+    python -m backend.vlm.eval.eval_vrsbench --data_dir data/vrsbench --mode grounding
+    python -m backend.vlm.eval.eval_vrsbench --data_dir data/vrsbench --mode vqa
+
+JSONL row format (see scripts/download_datasets.py --placeholder):
+    {"id": "...", "images": ["img.jpg"], "caption": "...",
+     "query": "...", "answer": "...",
+     "boxes": [{"bbox": [x1,y1,x2,y2], "label": "..."}]}
 """
+from __future__ import annotations
+
 import argparse
+import asyncio
 import json
 import logging
-import time
+import sys
 from pathlib import Path
-from typing import Optional
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("satai.eval")
+_BACKEND = Path(__file__).resolve().parents[2]
+if str(_BACKEND) not in sys.path:
+    sys.path.insert(0, str(_BACKEND))
+
+from vlm.eval.common import (answers_match, box_iou, extract_pred_boxes,  # noqa: E402
+                             gt_box_abs, to_image_inputs)
+from vlm.eval.eval_metrics import caption_report  # noqa: E402
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+logger = logging.getLogger("satai.eval.vrsbench")
 
 
 class VRSEvaluator:
-    def __init__(self, data_dir: str, controller):
+    def __init__(self, data_dir: str, controller, limit: int = 0):
         self.data_dir = Path(data_dir)
         self.controller = controller
-        self.results = []
+        self.limit = limit
 
-    def load_split(self, split: str = "test") -> list[dict]:
-        """Load VRSBench split."""
-        fpath = self.data_dir / f"{split}.jsonl"
-        if not fpath.exists():
-            logger.warning(f"Split not found: {fpath}")
-            return []
-        samples = []
-        with open(fpath, "r", encoding="utf-8") as f:
-            for line in f:
-                if line.strip():
-                    samples.append(json.loads(line))
-        return samples
+    def load_split(self, split: str = "test") -> list:
+        from vlm.eval.common import read_jsonl
+        rows = read_jsonl(self.data_dir / f"{split}.jsonl")
+        if not rows:
+            logger.warning("No samples in %s", self.data_dir / f"{split}.jsonl")
+        if self.limit:
+            rows = rows[:self.limit]
+        return rows
 
-    async def eval_caption(self, samples: list[dict]) -> dict:
-        """Evaluate captioning: BLEU-1/2/3/4, METEOR, ROUGE-L, CIDEr."""
-        predictions = []
+    # ------------------------------------------------------------- caption
+    async def eval_caption(self, samples: list) -> dict:
+        preds, gts = [], []
         for i, sample in enumerate(samples):
+            imgs = to_image_inputs(sample.get("images", []), self.data_dir)
+            if not imgs:
+                continue
             result = await self.controller.execute(
                 query="Describe this satellite image in detail.",
-                images=sample.get("images", []),
-                mode="single",
-            )
-            predictions.append({
-                "id": sample.get("id", str(i)),
-                "pred": result.response,
-                "gt": sample.get("caption", ""),
-            })
-            if (i + 1) % 50 == 0:
-                logger.info(f"Caption eval: {i+1}/{len(samples)}")
+                images=imgs, mode="single")
+            preds.append(result.response)
+            gt = sample.get("caption") or sample.get("answer") or ""
+            gts.append([gt] if isinstance(gt, str) else list(gt))
+            if (i + 1) % 25 == 0:
+                logger.info("caption %d/%d", i + 1, len(samples))
+        report = caption_report(preds, gts)
+        report["predictions"] = [
+            {"pred": p, "gt": g[0] if g else ""} for p, g in zip(preds, gts)]
+        return report
 
-        return self._compute_caption_metrics(predictions)
-
-    async def eval_grounding(self, samples: list[dict]) -> dict:
-        """Evaluate visual grounding: Acc@0.5, Acc@0.7 (IoU thresholds)."""
-        predictions = []
+    # ----------------------------------------------------------- grounding
+    async def eval_grounding(self, samples: list) -> dict:
+        ious, rows = [], []
         for i, sample in enumerate(samples):
-            query = sample.get("query", "What objects are in this image?")
+            imgs = to_image_inputs(sample.get("images", []), self.data_dir)
+            if not imgs:
+                continue
+            query = sample.get("query") or \
+                "Locate the referred object with a bounding box."
             result = await self.controller.execute(
-                query=query,
-                images=sample.get("images", []),
-                mode="single",
-            )
-            pred_boxes = result.visual_evidence.get("features", []) if result.visual_evidence else []
-            gt_boxes = sample.get("boxes", [])
-            iou = self._compute_iou(pred_boxes, gt_boxes)
-            predictions.append({
-                "id": sample.get("id", str(i)),
-                "iou": iou,
-            })
+                query=query, images=imgs, mode="single",
+                metadata={"force_task": "single_ground"})
 
-        acc_5 = sum(1 for p in predictions if p["iou"] >= 0.5) / max(len(predictions), 1)
-        acc_7 = sum(1 for p in predictions if p["iou"] >= 0.7) / max(len(predictions), 1)
-        return {"Acc@0.5": acc_5, "Acc@0.7": acc_7, "num_samples": len(predictions)}
+            w = h = None
+            if result.validation and result.validation.images:
+                w, h = result.validation.images[0].width, \
+                    result.validation.images[0].height
+            pred_boxes = extract_pred_boxes(result)
+            gt_boxes = [gt_box_abs(b.get("bbox", []), w, h)
+                        for b in sample.get("boxes", [])
+                        if b.get("bbox") and len(b["bbox"]) >= 4]
 
-    async def eval_vqa(self, samples: list[dict]) -> dict:
-        """Evaluate VQA: accuracy per question type."""
-        correct = 0
-        total = 0
-        by_type = {}
+            best = max((box_iou(pb, gb) for pb in pred_boxes
+                        for gb in gt_boxes), default=0.0) \
+                if pred_boxes and gt_boxes else 0.0
+            ious.append(best)
+            rows.append({"id": sample.get("id", str(i)), "iou": round(best, 4),
+                         "n_pred": len(pred_boxes), "n_gt": len(gt_boxes)})
+            if (i + 1) % 25 == 0:
+                logger.info("grounding %d/%d", i + 1, len(samples))
+
+        n = max(len(ious), 1)
+        return {
+            "Acc@0.5": round(sum(v >= 0.5 for v in ious) / n, 4),
+            "Acc@0.7": round(sum(v >= 0.7 for v in ious) / n, 4),
+            "mean_IoU": round(sum(ious) / n, 4),
+            "num_samples": len(ious),
+            "detail": rows,
+        }
+
+    # ----------------------------------------------------------------- vqa
+    async def eval_vqa(self, samples: list) -> dict:
+        by_type: dict = {}
+        correct = total = 0
         for i, sample in enumerate(samples):
-            query = sample.get("query", "")
+            imgs = to_image_inputs(sample.get("images", []), self.data_dir)
+            if not imgs:
+                continue
+            query = sample.get("query") or sample.get("question") or ""
             gt = sample.get("answer", "")
             result = await self.controller.execute(
-                query=query,
-                images=sample.get("images", []),
-                mode="single",
-            )
-            pred = result.response.strip().lower()
-            is_correct = pred == gt.strip().lower()
-            if is_correct:
-                correct += 1
+                query=query, images=imgs, mode="single")
+            ok = answers_match(result.response, gt)
+            correct += ok
             total += 1
-
             qtype = sample.get("question_type", "unknown")
-            if qtype not in by_type:
-                by_type[qtype] = {"correct": 0, "total": 0}
-            by_type[qtype]["total"] += 1
-            if is_correct:
-                by_type[qtype]["correct"] += 1
-
-            if (i + 1) % 50 == 0:
-                logger.info(f"VQA eval: {i+1}/{len(samples)}")
-
-        accuracy = correct / max(total, 1)
-        type_acc = {t: v["correct"] / max(v["total"], 1) for t, v in by_type.items()}
-        return {"accuracy": accuracy, "by_type": type_acc, "num_samples": total}
-
-    def _compute_iou(self, pred_boxes: list, gt_boxes: list) -> float:
-        """Compute IoU between predicted and ground truth boxes."""
-        if not pred_boxes or not gt_boxes:
-            return 0.0
-        # Simple: use best matching box
-        best_iou = 0.0
-        for pb in pred_boxes:
-            for gb in gt_boxes:
-                iou = self._iou(pb, gb)
-                best_iou = max(best_iou, iou)
-        return best_iou
-
-    def _iou(self, box1: list, box2: list) -> float:
-        """IoU between two [x1,y1,x2,y2] boxes."""
-        if len(box1) < 4 or len(box2) < 4:
-            return 0.0
-        x1 = max(box1[0], box2[0])
-        y1 = max(box1[1], box2[1])
-        x2 = min(box1[2], box2[2])
-        y2 = min(box1[3], box2[3])
-        inter = max(0, x2 - x1) * max(0, y2 - y1)
-        area1 = (box1[2] - box1[0]) * (box1[3] - box1[1])
-        area2 = (box2[2] - box2[0]) * (box2[3] - box2[1])
-        union = area1 + area2 - inter
-        return inter / max(union, 1e-6)
-
-    def _compute_caption_metrics(self, predictions: list[dict]) -> dict:
-        """Compute caption metrics (placeholder — use pycocoevalcap for real metrics)."""
-        logger.info("Computing caption metrics...")
-        # In production, use: from pycocoevalcap.bleu.bleu import Bleu
-        # For now, return basic stats
-        avg_len = sum(len(p["pred"].split()) for p in predictions) / max(len(predictions), 1)
+            agg = by_type.setdefault(qtype, {"correct": 0, "total": 0})
+            agg["total"] += 1
+            agg["correct"] += int(ok)
+            if (i + 1) % 25 == 0:
+                logger.info("vqa %d/%d (acc %.3f)", i + 1, len(samples),
+                            correct / max(total, 1))
         return {
-            "num_samples": len(predictions),
-            "avg_pred_length": avg_len,
-            "note": "Install pycocoevalcap for BLEU/METEOR/CIDEr metrics",
+            "accuracy": round(correct / max(total, 1), 4),
+            "correct": correct,
+            "total": total,
+            "by_type": {t: round(v["correct"] / max(v["total"], 1), 4)
+                        for t, v in by_type.items()},
         }
+
+
+async def run(args) -> dict:
+    logger.info("VRSBench eval — mode=%s split=%s", args.mode, args.split)
+    from vlm.eval.common import build_controller
+    ctrl = build_controller()
+    ev = VRSEvaluator(args.data_dir, ctrl, args.limit)
+    samples = ev.load_split(args.split)
+    if not samples:
+        logger.error("No samples found in %s/%s.jsonl", args.data_dir, args.split)
+        return {}
+    logger.info("Loaded %d samples", len(samples))
+    try:
+        if args.mode == "caption":
+            return await ev.eval_caption(samples)
+        if args.mode == "grounding":
+            return await ev.eval_grounding(samples)
+        return await ev.eval_vqa(samples)
+    finally:
+        await ctrl.close()
 
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--data_dir", type=str, default="data/vrsbench")
-    p.add_argument("--mode", type=str, choices=["caption", "grounding", "vqa"], required=True)
-    p.add_argument("--split", type=str, default="test")
+    p.add_argument("--data_dir", default="data/vrsbench")
+    p.add_argument("--mode", choices=["caption", "grounding", "vqa"],
+                   required=True)
+    p.add_argument("--split", default="test")
+    p.add_argument("--limit", type=int, default=0)
     args = p.parse_args()
 
-    logger.info(f"VRSBench eval — mode: {args.mode}, split: {args.split}")
-    logger.info("Import controller...")
-    from vlm.controller import Controller
-    ctrl = Controller()
-
-    evaluator = VRSEvaluator(args.data_dir, ctrl)
-    samples = evaluator.load_split(args.split)
-    if not samples:
-        logger.error(f"No samples found in {args.data_dir}/{args.split}.jsonl")
+    results = asyncio.run(run(args))
+    if not results:
         return
-
-    logger.info(f"Loaded {len(samples)} samples")
-
-    import asyncio
-    if args.mode == "caption":
-        results = asyncio.run(evaluator.eval_caption(samples))
-    elif args.mode == "grounding":
-        results = asyncio.run(evaluator.eval_grounding(samples))
-    elif args.mode == "vqa":
-        results = asyncio.run(evaluator.eval_vqa(samples))
-
     out_path = Path(args.data_dir) / f"eval_{args.mode}_results.json"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, "w") as f:
         json.dump(results, f, indent=2)
-    logger.info(f"Results saved to: {out_path}")
-    logger.info(json.dumps(results, indent=2))
+    summary = {k: v for k, v in results.items()
+               if not isinstance(v, list)}
+    logger.info("Results -> %s", out_path)
+    logger.info(json.dumps(summary, indent=2))
 
 
 if __name__ == "__main__":

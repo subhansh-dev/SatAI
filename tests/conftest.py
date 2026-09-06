@@ -1,6 +1,7 @@
-import pytest
+"""SatAI test suite — sys.path bootstrap for `import vlm.*` / `import api.*`."""
+import sys
+from pathlib import Path
 
-
-@pytest.fixture(params=["asyncio"])
-def anyio_backend(request):
-    return request.param
+BACKEND = Path(__file__).resolve().parent.parent / "backend"
+if str(BACKEND) not in sys.path:
+    sys.path.insert(0, str(BACKEND))

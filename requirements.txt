@@ -1,29 +1,17 @@
+# SatAI — SatQuery AI · runtime requirements
 fastapi>=0.110.0
 uvicorn[standard]>=0.30.0
 httpx>=0.27.0
-numpy>=1.26,<2.0
-scipy>=1.11,<2.0
+numpy>=1.26
+scipy>=1.11
 Pillow>=10.0
 matplotlib>=3.8
 pydantic>=2.7
 python-multipart>=0.0.9
-aiofiles>=24.0
-jinja2>=3.1
-requests>=2.32
-websockets>=12.0
-python-dateutil>=2.9
-cachetools>=5.0
-markdown>=3.7
-apscheduler>=3.10
-earthengine-api>=1.1.0
 python-dotenv>=1.0
-google-auth>=2.28.0
-google-auth-oauthlib>=1.2.0
+tifffile>=2024.1.30
 
-# VLM Integration
-transformers>=4.45.0
-peft>=0.13.0
-bitsandbytes>=0.44.0
-accelerate>=1.0.0
-datasets>=3.0.0
-torch>=2.1.0
+# --- optional: local VLM serving + RS fine-tuning (training extra) ---
+# torch>=2.2  transformers>=4.49  peft>=0.13  accelerate>=1.0
+# bitsandbytes>=0.44  datasets>=3.0  qwen-vl-utils>=0.0.8
+# rasterio>=1.3   # GeoTIFF deep-probe (tifffile covers the basic path)

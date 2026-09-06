@@ -1,21 +1,20 @@
+# Render.com blueprint — SatAI (SatQuery AI, PS SIH26167)
+# Cloud mode uses OpenRouter; the local vLLM path is for air-gapped finals.
 services:
   - type: web
-    name: chronovisor
+    name: satai
     runtime: python
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn backend.api.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
     envVars:
       - key: PYTHON_VERSION
         value: "3.11"
-      - key: LLM_PROVIDER
-        value: "cerebras"
-      - key: CEREBRAS_API_KEY
-        sync: false
-      - key: GEE_PROJECT_ID
-        value: "chronovisor-498714"
-      - key: GOOGLE_APPLICATION_CONTENTS
-        sync: false
-      - key: CHRONOVISOR_PORT
+      - key: VLM_MODE
+        value: "cloud"
+      - key: CLOUD_MODEL
+        value: "qwen/qwen-2.5-vl-72b-instruct"
+      - key: OPENROUTER_API_KEY
+        sync: false          # set in the Render dashboard — never commit
+      - key: SATAI_PORT
         value: "8500"
-      - key: CACHE_TTL
-        value: "3600"

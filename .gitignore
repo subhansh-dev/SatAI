@@ -29,3 +29,12 @@ data/second/
 
 # vLLM artifacts
 vllm_output/
+
+# LoRA checkpoints (trained weights stay local / on the training box)
+backend/vlm/lora/
+
+# Remaining dataset folders + persisted query results
+data/rsvqa/
+data/changechat/
+data/queries/
+data/bigearthnet/

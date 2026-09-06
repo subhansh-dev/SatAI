@@ -286,7 +286,7 @@ def prepare_for_vlm(raw: bytes, is_sar: bool = False, max_side: int = 1344,
                        for ch, (lo, hi) in zip(chans, bounds)])
 
     rgb8 = (arr_n * 255).astype(np.uint8)
-    img_out = Image.fromarray(rgb8, mode="RGB")
+    img_out = Image.fromarray(rgb8)
     orig_w, orig_h = img_out.size
     img_out = downscale(img_out, max_side)
     if img_out.size != (orig_w, orig_h):

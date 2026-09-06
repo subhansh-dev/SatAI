@@ -62,35 +62,67 @@ def download_bigearthnet():
 
 
 def download_rsvqa():
-    """Download RSVQA dataset."""
+    """Download RSVQA dataset (images materialised to disk + JSONL)."""
     logger.info("RSVQA — Remote Sensing Visual Question Answering")
     logger.info("=" * 60)
 
     out_dir = DATA_DIR / "rsvqa"
-    ensure_dir(out_dir)
+    img_dir = out_dir / "images"
+    ensure_dir(img_dir)
 
     # Try HuggingFace
     try:
         import datasets
         logger.info("Attempting HuggingFace download...")
-        ds = datasets.load_dataset("arampacha/rsvqa", split="test[:200]", trust_remote_code=True)
-        ds.save_to_disk(str(out_dir / "hf"))
-        logger.info(f"Saved RSVQA to: {out_dir / 'hf'}")
+        ds = datasets.load_dataset("arampacha/rsvqa", split="test[:200]",
+                                   trust_remote_code=True)
+        logger.info("Downloaded %d rows — materialising images...", len(ds))
 
-        # Convert to JSONL format
-        jsonl_path = out_dir / "test.jsonl"
+        # Field names differ across HF revisions — probe defensively.
+        img_field = next((k for k in ("image", "images", "img")
+                          if k in ds.features), None)
+        if img_field is None:
+            logger.warning("No image field found. Fields: %s",
+                           list(ds.features))
+            return False
+
+        jsonl_path = out_dir / "train.jsonl"
+        n_ok = 0
         with open(jsonl_path, "w") as f:
-            for item in ds:
-                sample = {
-                    "id": item.get("id", ""),
-                    "images": item.get("images", []),
-                    "question": item.get("question", ""),
-                    "answer": item.get("answer", ""),
-                    "question_type": item.get("question_type", "unknown"),
-                }
-                f.write(json.dumps(sample) + "\n")
-        logger.info(f"Converted to JSONL: {jsonl_path}")
-        return True
+            for i, item in enumerate(ds):
+                img = item.get(img_field)
+                path = img_dir / f"rsvqa_{i:05d}.jpg"
+                try:
+                    if isinstance(img, list):     # multiple images
+                        saved = []
+                        for j, im in enumerate(img):
+                            p = img_dir / f"rsvqa_{i:05d}_{j}.jpg"
+                            im.convert("RGB").save(p, quality=92)
+                            saved.append(str(p.relative_to(out_dir)))
+                        imgs = saved
+                    elif hasattr(img, "save"):
+                        img.convert("RGB").save(path, quality=92)
+                        imgs = [str(path.relative_to(out_dir))]
+                    else:                          # already a path/str
+                        imgs = [str(img)]
+                except Exception as e:
+                    logger.debug("row %d image save failed: %s", i, e)
+                    continue
+                q = item.get("question") or item.get("query") or ""
+                a = item.get("answer") or ""
+                if not q or not a or not imgs:
+                    continue
+                f.write(json.dumps({
+                    "id": item.get("id", f"rsvqa_{i}"),
+                    "images": imgs,
+                    "question": q,
+                    "answer": a,
+                    "question_type": item.get("question_type",
+                                              item.get("type", "unknown")),
+                }) + "\n")
+                n_ok += 1
+        logger.info("RSVQA ready: %d samples -> %s", n_ok, jsonl_path)
+        return n_ok > 0
     except ImportError:
         logger.info("pip install datasets")
     except Exception as e:
@@ -100,7 +132,10 @@ def download_rsvqa():
     logger.info("Manual download:")
     logger.info("  1. Go to: https://github.com/isaaccorley/RSVQA")
     logger.info("  2. Download dataset splits")
-    logger.info("  3. Place as data/rsvqa/test.jsonl")
+    logger.info("  3. Place images under data/rsvqa/images/ and write "
+                "data/rsvqa/train.jsonl rows:")
+    logger.info('     {"images": ["images/x.jpg"], "question": "...", '
+                '"answer": "...", "question_type": "category"}')
     return False
 
 

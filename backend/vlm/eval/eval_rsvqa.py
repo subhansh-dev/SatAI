@@ -1,103 +1,120 @@
 """
-SatAI — RSVQA Evaluation
-Evaluates on RSVQA benchmark for remote sensing VQA.
+SatAI — RSVQA Evaluation (single-image VQA accuracy, PS baseline task)
 
-Usage:
-    python -m vlm.eval.eval_rsvqa --data_dir data/rsvqa
+Standard VQA protocol: exact match after normalisation (lowercase, articles
+and punctuation stripped), with numeric equivalence ("2" == "2.0").
+Per-question-type accuracy breakdown included.
+
+Usage (from repo root):
+    python -m backend.vlm.eval.eval_rsvqa --data_dir data/rsvqa --limit 200
 """
+from __future__ import annotations
+
 import argparse
+import asyncio
 import json
 import logging
+import sys
 from pathlib import Path
 
-logging.basicConfig(level=logging.INFO)
+_BACKEND = Path(__file__).resolve().parents[2]
+if str(_BACKEND) not in sys.path:
+    sys.path.insert(0, str(_BACKEND))
+
+from vlm.eval.common import answers_match, to_image_inputs  # noqa: E402
+
+logging.basicConfig(level=logging.INFO,
+                    format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("satai.eval.rsvqa")
 
 
 class RSVQAEvaluator:
-    def __init__(self, data_dir: str, controller):
+    def __init__(self, data_dir: str, controller, limit: int = 0):
         self.data_dir = Path(data_dir)
         self.controller = controller
+        self.limit = limit
 
-    def load_samples(self, split: str = "test") -> list[dict]:
-        fpath = self.data_dir / f"{split}.jsonl"
-        if not fpath.exists():
-            logger.warning(f"RSVQA split not found: {fpath}")
-            return []
-        samples = []
-        with open(fpath, "r", encoding="utf-8") as f:
-            for line in f:
-                if line.strip():
-                    samples.append(json.loads(line))
-        return samples
+    def load_samples(self, split: str = "test") -> list:
+        from vlm.eval.common import read_jsonl
+        rows = []
+        for name in (f"{split}.jsonl", "test.jsonl", "train.jsonl"):
+            rows = read_jsonl(self.data_dir / name)
+            if rows:
+                break
+        if self.limit:
+            rows = rows[:self.limit]
+        return rows
 
-    async def evaluate(self, samples: list[dict]) -> dict:
-        correct = 0
-        total = 0
-        by_type = {}
-
+    async def evaluate(self, samples: list) -> dict:
+        correct = total = 0
+        by_type: dict = {}
+        misses = []
         for i, sample in enumerate(samples):
-            query = sample.get("question", "")
+            imgs = to_image_inputs(sample.get("images", []), self.data_dir)
+            if not imgs:
+                continue
+            query = sample.get("question") or sample.get("query") or ""
             gt = sample.get("answer", "")
-            images = sample.get("images", [])
-
             result = await self.controller.execute(
-                query=query,
-                images=images,
-                mode="single",
-            )
-
-            pred = result.response.strip().lower()
-            is_correct = pred == gt.strip().lower()
-            if is_correct:
-                correct += 1
+                query=query, images=imgs, mode="single")
+            ok = answers_match(result.response, gt)
+            correct += ok
             total += 1
-
             qtype = sample.get("question_type", "unknown")
-            if qtype not in by_type:
-                by_type[qtype] = {"correct": 0, "total": 0}
-            by_type[qtype]["total"] += 1
-            if is_correct:
-                by_type[qtype]["correct"] += 1
-
+            agg = by_type.setdefault(qtype, {"correct": 0, "total": 0})
+            agg["total"] += 1
+            agg["correct"] += int(ok)
+            if not ok and len(misses) < 25:
+                misses.append({"id": sample.get("id", str(i)),
+                               "q": query, "gt": gt,
+                               "pred": result.response[:200]})
             if (i + 1) % 25 == 0:
-                logger.info(f"Progress: {i+1}/{len(samples)} | Running acc: {correct/total:.3f}")
-
-        accuracy = correct / max(total, 1)
-        type_acc = {t: v["correct"] / max(v["total"], 1) for t, v in by_type.items()}
-
+                logger.info("progress %d/%d | acc %.3f", i + 1, len(samples),
+                            correct / max(total, 1))
         return {
-            "accuracy": accuracy,
+            "accuracy": round(correct / max(total, 1), 4),
             "correct": correct,
             "total": total,
-            "by_type": type_acc,
+            "by_type": {t: round(v["correct"] / max(v["total"], 1), 4)
+                        for t, v in by_type.items()},
+            "sample_misses": misses,
         }
+
+
+async def run(args) -> dict:
+    from vlm.eval.common import build_controller
+    logger.info("RSVQA eval — split=%s", args.split)
+    ctrl = build_controller()
+    ev = RSVQAEvaluator(args.data_dir, ctrl, args.limit)
+    samples = ev.load_samples(args.split)
+    if not samples:
+        logger.error("No samples. Download first: "
+                     "python scripts/download_datasets.py --rsvqa")
+        return {}
+    logger.info("Loaded %d samples", len(samples))
+    try:
+        return await ev.evaluate(samples)
+    finally:
+        await ctrl.close()
 
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--data_dir", type=str, default="data/rsvqa")
-    p.add_argument("--split", type=str, default="test")
+    p.add_argument("--data_dir", default="data/rsvqa")
+    p.add_argument("--split", default="test")
+    p.add_argument("--limit", type=int, default=0)
     args = p.parse_args()
 
-    logger.info("RSVQA Evaluation")
-    from vlm.controller import Controller
-    ctrl = Controller()
-
-    evaluator = RSVQAEvaluator(args.data_dir, ctrl)
-    samples = evaluator.load_samples(args.split)
-    if not samples:
-        logger.error("No samples found. Download RSVQA dataset first.")
+    results = asyncio.run(run(args))
+    if not results:
         return
-
-    import asyncio
-    results = asyncio.run(evaluator.evaluate(samples))
-
     out_path = Path(args.data_dir) / f"eval_results_{args.split}.json"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, "w") as f:
         json.dump(results, f, indent=2)
-    logger.info(f"Results: {out_path}")
-    logger.info(json.dumps(results, indent=2))
+    summary = {k: v for k, v in results.items() if not isinstance(v, list)}
+    logger.info("Results -> %s", out_path)
+    logger.info(json.dumps(summary, indent=2))
 
 
 if __name__ == "__main__":

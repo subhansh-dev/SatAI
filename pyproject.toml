@@ -3,67 +3,72 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "chronovisor"
-version = "0.3.0"
-description = "Temporal Archaeology Engine - AI-powered archaeological analysis using satellite data, environmental sensors, and Gemini AI"
+name = "satai"
+version = "2.0.0"
+description = "SatQuery AI - Agentic Vision-Language Assistant for Multimodal Remote Sensing Image Analysis (SIH26167, ISRO)"
 readme = "README.md"
-requires-python = ">=3.9"
-license = {text = "MIT"}
-authors = [{name = "Chronovisor Team"}]
-keywords = ["archaeology", "satellite", "remote-sensing", "ai", "temporal"]
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Team SatAI" }]
+keywords = [
+    "remote-sensing", "satellite", "vision-language-model",
+    "agentic-ai", "isro", "sih26167", "geospatial", "sar",
+]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
     "Topic :: Scientific/Engineering :: GIS",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "License :: OSI Approved :: MIT License",
-    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
 ]
 
 dependencies = [
-    "fastapi>=0.115.0",
+    "fastapi>=0.110.0",
     "uvicorn[standard]>=0.30.0",
     "httpx>=0.27.0",
-    "numpy>=1.26.0",
-    "scipy>=1.13.0",
-    "Pillow>=10.4.0",
-    "matplotlib>=3.9.0",
-    "pydantic>=2.8.0",
+    "numpy>=1.26",
+    "scipy>=1.11",
+    "Pillow>=10.0",
+    "matplotlib>=3.8",
+    "pydantic>=2.7",
     "python-multipart>=0.0.9",
-    "aiofiles>=24.1.0",
-    "jinja2>=3.1.4",
-    "earthengine-api>=0.1.400",
-    "scikit-learn>=1.5.0",
-    "opencv-python-headless>=4.10.0",
-    "requests>=2.32.0",
-    "websockets>=12.0",
-    "python-dateutil>=2.9.0",
-    "cachetools>=5.5.0",
+    "python-dotenv>=1.0",
+    "tifffile>=2024.1.30",
 ]
 
 [project.optional-dependencies]
-full = [
-    "geemap>=0.34.0",
-    "soundfile>=0.12.1",
-    "librosa>=0.10.2",
-    "apscheduler>=3.10.4",
-    "markdown>=3.7",
+training = [
+    "torch>=2.2",
+    "transformers>=4.49",
+    "peft>=0.13",
+    "accelerate>=1.0",
+    "bitsandbytes>=0.44",
+    "datasets>=3.0",
+    "qwen-vl-utils>=0.0.8",
 ]
-dev = [
-    "pytest>=8.0",
-    "httpx>=0.27.0",
-]
+geo = ["rasterio>=1.3"]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "ruff>=0.5"]
 
 [project.scripts]
-chrono = "backend.cli:main"
+satai = "backend.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/chronovisor/chronovisor"
-Documentation = "https://github.com/chronovisor/chronovisor#readme"
-Repository = "https://github.com/chronovisor/chronovisor"
+Homepage = "https://github.com/subhansh-dev/SatAI"
+Documentation = "https://github.com/subhansh-dev/SatAI#readme"
+Repository = "https://github.com/subhansh-dev/SatAI"
 
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["backend*"]
 
-[tool.setuptools.package-data]
-backend = ["**/*.html", "**/*.css", "**/*.js"]
+[tool.ruff]
+line-length = 95
+target-version = "py310"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = "-q"
