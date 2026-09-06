@@ -26,7 +26,8 @@ TASK_TOOLS: Dict[str, List[str]] = {
     "bi_change":        ["change_desc"],
     "bi_change_vqa":    ["change_desc"],
     "cross_modal":      ["sar_fusion", "ground"],
-    "compound":         [],   # resolved dynamically by image count
+    "spectral_index":   ["spectral_index"],
+    "compound":         [],   # resolved dynamically by query decomposition
 }
 
 # Human-readable task names (used in trace + frontend)
@@ -38,8 +39,49 @@ TASK_LABELS: Dict[str, str] = {
     "bi_change": "Change description",
     "bi_change_vqa": "Change-based VQA",
     "cross_modal": "Optical + SAR fusion",
+    "spectral_index": "Spectral index (NDVI/NDWI/NDBI)",
     "compound": "Compound analysis",
 }
+
+# ---------------------------------------------------------------------------
+# MODEL REGISTRY (PS wording: "select the most suitable model or tool from the
+# predefined registry") — per-task routing between the cloud flagship and the
+# locally-served RS-adapted weights.
+# ---------------------------------------------------------------------------
+MODEL_REGISTRY: Dict[str, Dict[str, Any]] = {
+    "rs_landcover": {
+        "scope": ("single_caption", "bi_change", "bi_change_vqa", "cross_modal"),
+        "local": "lora",        # BigEarthNet-adapted weights shine here
+        "cloud": "flagship",
+        "rationale": "RS-domain tasks favour the RS-adapted weights when the "
+                     "air-gapped LoRA server is available; flagship otherwise",
+    },
+    "general": {
+        "scope": ("single_vqa", "single_vqa_count", "single_ground",
+                  "spectral_index", "compound"),
+        "local": "base",         # generic capability, adapter not required
+        "cloud": "flagship",
+        "rationale": "general visual reasoning uses the strongest available "
+                     "base model",
+    },
+}
+
+
+def select_model(task_type: str, vlm_mode: str,
+                 lora_served: bool = False) -> tuple[str, str]:
+    """Returns (model_id_hint, reason) from the model registry.
+    `model_id_hint` is 'lora' | 'base' | 'flagship' — the VLM client resolves
+    the hint to a concrete served model name."""
+    for profile in MODEL_REGISTRY.values():
+        if task_type in profile["scope"]:
+            if vlm_mode == "local":
+                hint = profile["local"]
+                if hint == "lora" and not lora_served:
+                    return "base", (profile["rationale"] +
+                                    " (adapter not served — base weights used)")
+                return hint, profile["rationale"]
+            return profile["cloud"], profile["rationale"]
+    return "flagship", "default registry entry"
 
 
 class ToolRegistry:
@@ -57,9 +99,7 @@ class ToolRegistry:
 
     def select(self, task_type: str, num_images: int = 1) -> List[str]:
         if task_type == "compound":
-            if num_images >= 2:
-                return ["change_desc", "vqa", "caption"]
-            return ["caption", "vqa"]
+            return []               # resolved by the controller's query decomposition
         return TASK_TOOLS.get(task_type, ["vqa"])
 
     def list_tools(self) -> List[Dict[str, Any]]:

@@ -22,7 +22,7 @@ pipeline-parallel-size: 1
 quantization: "awq"
 
 # Memory
-max-model-len: 4096
+max-model-len: 8192   # pair tasks: 2 x 1344px images ~= 4.6k image tokens + 768 output
 gpu-memory-utilization: 0.9
 
 # Serving
@@ -39,3 +39,9 @@ log-level: "info"
 
 # Health check
 health-check-interval: 30
+
+# RS-adapted LoRA adapter (optional — see scripts/train_lora.py):
+#   python -m vllm.entrypoints.openai.api_server \
+#     --model Qwen/Qwen2.5-VL-7B-Instruct --max-model-len 8192 \
+#     --enable-lora --lora-modules '{"name": "satai-rs", "path": "backend/vlm/lora/checkpoints/satai-rs", "max_lora_rank": 16}'
+# The client probes GET /v1/models and auto-selects 'satai-rs' when served.

@@ -41,6 +41,8 @@ class VLMClient:
         self._http = httpx.AsyncClient(timeout=self.timeout, limits=httpx.Limits(
             max_connections=8, max_keepalive_connections=4))
         self._health_cache: tuple[bool, float] = (False, 0.0)
+        self._served_models: Optional[List[str]] = None
+        self._model_resolved = False
         self.last_latency_ms: Optional[float] = None
         self.last_usage: Optional[Dict[str, Any]] = None
         self.request_count = 0
@@ -68,21 +70,25 @@ class VLMClient:
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
         response_json: bool = False,
+        model: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Chat completion with optional image attachments.
         `images` = list of base64 JPEG/PNG (no data: prefix) prepared for the VLM.
+        `model`  = optional per-call override (model registry routing).
         Raises VLMError after retries — callers decide the fallback story.
         """
         payload: Dict[str, Any] = {
-            "model": self.active_model,
+            "model": model or self.active_model,
             "messages": self._inject_images(messages, images or []),
             "max_tokens": max_tokens or config.VLM_MAX_TOKENS,
             "temperature": config.VLM_TEMPERATURE if temperature is None else temperature,
         }
-        if self.mode == "local" and self.lora_adapter:
-            # vLLM serves LoRA adapters registered via --lora-modules
-            payload["model"] = self.lora_adapter
+        if self.mode == "local":
+            await self._resolve_local_model(payload)
+        elif payload["model"] in ("lora", "base", "flagship"):
+            # cloud mode has one flagship — registry hints resolve to it
+            payload["model"] = self.cloud_model
         if response_json:
             payload["response_format"] = {"type": "json_object"}
 
@@ -104,8 +110,10 @@ class VLMClient:
                     json=payload, headers=headers)
                 if resp.status_code in (429, 500, 502, 503, 504):
                     last_err = f"HTTP {resp.status_code}: {resp.text[:200]}"
-                    await asyncio.sleep(1.5 * (attempt + 1))
-                    continue
+                    if attempt < config.VLM_MAX_RETRIES:
+                        await asyncio.sleep(self._retry_delay(attempt, resp))
+                        continue
+                    break
                 resp.raise_for_status()
                 data = resp.json()
                 self.last_latency_ms = (time.time() - t0) * 1000
@@ -114,12 +122,87 @@ class VLMClient:
             except httpx.HTTPStatusError as e:
                 raise VLMError(f"VLM HTTP {e.response.status_code}: "
                                f"{e.response.text[:300]}") from e
-            except (httpx.ConnectError, httpx.ReadTimeout) as e:
+            except (httpx.ConnectError, httpx.ConnectTimeout,
+                    httpx.ReadTimeout) as e:
+                # ConnectTimeout previously fell into the generic branch and
+                # was never retried — a cold vLLM server boot killed queries.
                 last_err = f"connection: {type(e).__name__}"
-                await asyncio.sleep(1.5 * (attempt + 1))
+                if attempt < config.VLM_MAX_RETRIES:
+                    await asyncio.sleep(self._retry_delay(attempt, None))
+                    continue
+                break
             except httpx.HTTPError as e:
                 raise VLMError(f"VLM transport error: {e}") from e
         raise VLMError(f"VLM unavailable after retries ({last_err})")
+
+    @staticmethod
+    def _retry_delay(attempt: int, resp: Optional[httpx.Response]) -> float:
+        """Respect Retry-After when present; exponential backoff + jitter."""
+        if resp is not None:
+            ra = resp.headers.get("retry-after")
+            if ra:
+                try:
+                    return min(30.0, float(ra))
+                except ValueError:
+                    pass
+        import random
+        return min(20.0, 1.5 * (2 ** attempt) + random.uniform(0, 0.5))
+
+    # ------------------------------------------------------------------ local
+    async def _resolve_local_model(self, payload: Dict[str, Any]) -> None:
+        """
+        Local-mode model name resolution (fixes the deployment bug where the
+        client requested a model name the vLLM server didn't serve and every
+        call 404'd). Registry hints (lora | base | flagship) resolve against
+        the served-model list with graceful fallback:
+        1. probe GET /models once
+        2. 'lora'  -> LoRA adapter when actually served, else base, else first
+        3. 'base'  -> configured base weights when served, else first served
+        4. concrete names must be served, else fall back with a warning
+        """
+        asked = payload.get("model")
+        if self._model_resolved and asked not in ("lora", "base", "flagship"):
+            return
+        served = await self._list_served_models()
+        if served:
+            self._served_models = served
+        else:
+            served = self._served_models or []
+        self._model_resolved = True
+
+        if asked == "lora":
+            for cand in (self.lora_adapter, self.local_model,
+                         *(served or [])):
+                if cand and cand in served:
+                    payload["model"] = cand
+                    return
+            if served:
+                payload["model"] = served[0]
+            return
+        if asked in ("base", "flagship"):
+            for cand in (self.local_model, *(served or [])):
+                if cand and cand in served:
+                    payload["model"] = cand
+                    return
+            if served:
+                payload["model"] = served[0]
+            return
+        # concrete model name — verify when possible
+        if asked and served and asked not in served:
+            logger.warning("local VLM: requested %r but server serves %s — "
+                           "using %r", asked, served, served[0])
+            payload["model"] = served[0]
+
+    async def _list_served_models(self) -> Optional[List[str]]:
+        try:
+            resp = await self._http.get(f"{self.local_url}/models", timeout=10)
+            if resp.status_code != 200:
+                return None
+            data = resp.json()
+            ids = [d.get("id") for d in data.get("data", []) if d.get("id")]
+            return ids or None
+        except Exception:
+            return None
 
     # ------------------------------------------------------------------ health
     async def health_check(self, force: bool = False) -> bool:

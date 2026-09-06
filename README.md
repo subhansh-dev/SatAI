@@ -31,6 +31,39 @@ Inputs: single optical/multispectral/SAR image · registered optical+SAR pair ·
 bi-temporal pair. **GeoTIFF/TIFF are first-class** (georeference is carried into
 the GeoJSON output); PNG/JPEG accepted for public benchmark data.
 
+### What's new (Sept 2026 hardening + upgrade pass)
+
+- **Agentic depth** — compound queries are *decomposed* into sub-questions and
+  routed to specialist tools which run **in parallel**; the **model registry**
+  routes tasks between the cloud flagship and the locally-served RS-LoRA
+  weights (`tool_registry.select_model`), with the decision recorded in the
+  audit trace.
+- **Calibrated confidence** — counting queries use *self-consistency sampling*
+  (modal answer of n samples + agreement bonus); the `CONFIDENCE` protocol now
+  parses decimal self-reports correctly (`0.85` used to parse as `0.0`).
+- **Algorithmic SAR layer** — speckle CoV, dB dynamic range, dark/bright
+  fractions are *measured* on the raw backscatter and injected into fusion
+  prompts (verifiable numbers, not VLM guesses).
+- **Spectral index tool** — NDVI / NDWI / NDBI computed from the original
+  multispectral GeoTIFF bands (Sentinel-2 & 4-band conventions), with a
+  colour-ramped map, class fractions and **km² area estimates from the ground
+  sampling distance**. Works fully offline — no VLM key required.
+- **GeoTIFF-first fixes** — true-colour band selection for 10–13-band stacks
+  (was showing SWIR false colour), NaN/nodata-safe percentile stretching,
+  WGS84 UTM→lon/lat conversion for GeoJSON (RFC 7946), server-side JPEG
+  previews so TIFFs render in the browser, aspect-preserving change maps with
+  changed-region polygons exported as georeferenced GeoJSON.
+- **Local vLLM mode repaired** — the client probes `/v1/models`, resolves the
+  LoRA adapter / base model against what is actually served, and
+  `max-model-len` raised to 8192 so pair tasks fit in context.
+- **Performance** — raster validation/preparation/evidence rendering moved off
+  the event loop (`asyncio.to_thread`), independent tools executed via
+  `asyncio.gather`, evidence payloads switched to JPEG (~5-8× smaller), and
+  VLM retries now honour `Retry-After` with exponential backoff + jitter.
+- **Fine-tuning correctness** — `train_lora.py` now uses the *official*
+  BigEarthNet v1→19-class label conversion (RSIM `label_indices.json`); the
+  previous identity-style map learned wrong labels.
+
 ---
 
 ## 🚀 Quickstart

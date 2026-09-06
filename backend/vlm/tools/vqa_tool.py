@@ -27,7 +27,7 @@ class VQATool(BaseTool):
     ps_requirement = "Mandatory: single-image VQA"
 
     async def execute(self, query: str, images: list[str],
-                      **params) -> Dict[str, Any]:
+                      model: str | None = None, **params) -> Dict[str, Any]:
         user = (
             f"Remote-sensing image analysis task.\n"
             f"User question: {query}\n\n"
@@ -35,6 +35,6 @@ class VQATool(BaseTool):
             "remote-sensing vocabulary. End with `CONFIDENCE: <0-100>`."
         )
         text, conf, meta = await self.ask(SYSTEM, user, images[:1],
-                                          max_tokens=768)
+                                          max_tokens=768, model=model)
         return {"text": text, "confidence": conf, "model": meta["model"],
                 "metadata": {"self_reported": meta["self_reported_confidence"]}}

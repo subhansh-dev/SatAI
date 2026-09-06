@@ -18,7 +18,8 @@ from ..vlm_client import VLMClient, VLMError
 
 logger = logging.getLogger("satai.tools")
 
-_CONF_RE = re.compile(r"CONFIDENCE\s*[:=]\s*([0-9]{1,3})", re.IGNORECASE)
+# accepts "CONFIDENCE: 85", "CONFIDENCE: 0.85", "CONFIDENCE = 92%"
+_CONF_RE = re.compile(r"CONFIDENCE\s*[:=]\s*([0-9]{1,3}(?:\.[0-9]+)?)", re.IGNORECASE)
 
 
 class BaseTool:
@@ -38,10 +39,12 @@ class BaseTool:
     # ------------------------------------------------------------------ vlm
     async def ask(self, system: str, user: str, images: List[str],
                   max_tokens: int = 768, temperature: float = 0.1,
-                  response_json: bool = False) -> Tuple[str, float, Dict[str, Any]]:
+                  response_json: bool = False,
+                  model: Optional[str] = None) -> Tuple[str, float, Dict[str, Any]]:
         """
         One VLM round-trip. Returns (text_without_confidence, confidence, meta).
         Confidence protocol: model appends `CONFIDENCE: NN` as the final line.
+        `model` = optional registry hint (lora | base | flagship) or concrete id.
         """
         messages = [
             {"role": "system", "content": system},
@@ -49,7 +52,7 @@ class BaseTool:
         ]
         data = await self.vlm.query(messages=messages, images=images,
                                     max_tokens=max_tokens, temperature=temperature,
-                                    response_json=response_json)
+                                    response_json=response_json, model=model)
         raw = (data.get("choices") or [{}])[0].get("message", {}).get("content", "")
         if not isinstance(raw, str):
             raw = str(raw)
@@ -70,7 +73,10 @@ class BaseTool:
         if matches:
             try:
                 val = float(matches[-1])
-                return max(0.0, min(val, 100.0)) / 100.0, True
+                if val > 1.0:            # 0-100 scale
+                    val /= 100.0
+                # values in (0,1] were already fractions ("CONFIDENCE: 0.85")
+                return max(0.0, min(val, 1.0)), True
             except ValueError:
                 pass
         return 0.6, False   # neutral fallback, flagged as not self-reported

@@ -78,6 +78,10 @@ VLM_TEMPERATURE = float(os.getenv("VLM_TEMPERATURE", "0.1"))
 VLM_MAX_RETRIES = int(os.getenv("VLM_MAX_RETRIES", "2"))
 VLM_HEALTH_TTL_SEC = float(os.getenv("VLM_HEALTH_TTL_SEC", "30"))
 
+# Self-consistency sampling for quantitative answers (calibrated confidence):
+# n completions per counting query; modal answer + agreement bonus.
+SELF_CONSISTENCY_SAMPLES = int(os.getenv("SELF_CONSISTENCY_SAMPLES", "3"))
+
 # ---------------------------------------------------------------------------
 # Query store (auditable execution summaries + downloadable reports)
 # ---------------------------------------------------------------------------

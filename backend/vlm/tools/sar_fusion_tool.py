@@ -30,10 +30,22 @@ class SARFusionTool(BaseTool):
     ps_requirement = "Mandatory: cross-modal (optical + SAR) paired-image analysis"
 
     async def execute(self, query: str, images: list[str],
+                      metadata: dict | None = None,
                       **params) -> Dict[str, Any]:
+        md = metadata or {}
+        stats = md.get("sar_stats") or {}
+        stat_block = ""
+        if stats:
+            stat_block = (
+                "\nPRE-COMPUTED SAR STATISTICS (algorithmic, measured on the raw "
+                "backscatter raster — cite these numbers, do not re-estimate):\n"
+                + "\n".join(f"- {k}: {v}" for k, v in stats.items())
+                + "\n"
+            )
         user = (
             "Joint optical (image 1) + SAR (image 2) analysis task.\n"
-            f"User query: {query}\n\n"
+            f"User query: {query}\n"
+            f"{stat_block}\n"
             "Reply using exactly this skeleton:\n"
             "OPTICAL OBSERVATIONS: <colour, texture, visible land cover>\n"
             "SAR OBSERVATIONS: <backscatter patterns, bright/dark signatures, "
@@ -49,4 +61,5 @@ class SARFusionTool(BaseTool):
         text, conf, meta = await self.ask(SYSTEM, user, images[:2],
                                           max_tokens=768)
         return {"text": text, "confidence": conf, "model": meta["model"],
-                "metadata": {"self_reported": meta["self_reported_confidence"]}}
+                "metadata": {"self_reported": meta["self_reported_confidence"],
+                             "sar_stats": stats or None}}

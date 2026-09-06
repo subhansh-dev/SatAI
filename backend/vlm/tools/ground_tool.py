@@ -16,11 +16,12 @@ SYSTEM = (
     "image and a referring expression, you localise the referred regions "
     "strictly in JSON. Normalise all coordinates to a 0-1000 grid over the "
     "full image extent, origin top-left, axis x right, axis y down.\n"
-    "Output ONLY a JSON array, no prose:\n"
+    "Output ONLY a JSON array, then on the FINAL line the confidence:\n"
     '[{"label":"<short name>","bbox":[x1,y1,x2,y2],"confidence":0.0}]\n'
+    "`CONFIDENCE: <0-100>`\n"
     "Rules: (x1,y1) is top-left, (x2,y2) bottom-right, x2>x1, y2>y1, all in "
-    "[0,1000]. If the object is absent, output []. Do not wrap in objects or "
-    "add commentary."
+    "[0,1000]. If the object is absent, output [] with CONFIDENCE still set. "
+    "No other commentary."
 )
 
 _FENCE_RE = re.compile(r"```(?:json)?\s*(.+?)\s*```", re.DOTALL)
@@ -103,14 +104,17 @@ class GroundTool(BaseTool):
                                                 max_tokens=512, temperature=0.0)
         boxes = parse_boxes(text)
         parse_ok = bool(boxes)
+        self_reported = bool(meta.get("self_reported_confidence"))
         if not boxes and text:
             # model answered prose but found nothing concrete — keep honest
             boxes = []
         conf = (sum(b["confidence"] for b in boxes) / len(boxes)) if boxes else 0.0
         if not boxes:
             conf = 0.35 if parse_ok is False else 0.5
-        # grounding trust = box confidences, dinged when parsing was lossy
-        confidence = round(conf * (0.9 if model_conf else 0.6), 3)
+        # grounding trust = box confidences, dinged when the model never used
+        # the confidence protocol (the old code multiplied by 0.6 on every
+        # answer because the prompt banned the CONFIDENCE line entirely)
+        confidence = round(min(1.0, conf * (0.95 if self_reported else 0.8)), 3)
         return {
             "text": (f"Located {len(boxes)} region(s) matching "
                      f"\"{query}\"." if boxes else
@@ -120,6 +124,6 @@ class GroundTool(BaseTool):
             "confidence_source": "box_scores+parse",
             "model": meta["model"],
             "metadata": {"output_format": output_format,
-                         "self_reported": model_conf,
+                         "self_reported": self_reported,
                          "raw_model_output": text[:500] if not boxes else None},
         }

@@ -25,6 +25,7 @@ from fastapi.staticfiles import StaticFiles
 
 from core import config
 from vlm.routes import router as vlm_router
+from vlm.tool_registry import registry
 
 logging.basicConfig(
     level=logging.INFO,
@@ -110,7 +111,7 @@ async def health() -> dict:
         "vlm_mode": ctrl.vlm.mode,
         "vlm_model": ctrl.vlm.active_model,
         "vlm_backend_ready": vlm_ok,
-        "tool_count": len(ctrl.vlm.__dict__.get("_tools", {})) or 6,
+        "tool_count": len(registry.tool_ids()),
     }
 
 

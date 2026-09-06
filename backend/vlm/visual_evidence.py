@@ -15,6 +15,7 @@ from __future__ import annotations
 import base64
 import io
 import logging
+from collections import deque
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -107,16 +108,23 @@ def render_change_map(before_b64: str, after_b64: str) -> Dict[str, Any]:
     """
     Estimate a spatial change map from a bi-temporal pair:
     grayscale -> blur -> |diff| -> threshold (mean + k*std) -> dilate ->
-    red overlay on the AFTER image + side-by-side + before/after/diff strip.
+    red overlay on the AFTER image + side-by-side + changed-region boxes.
 
-    Returns dict(mask_b64, side_b64, description, stats).
+    The analysis scale PRESERVES ASPECT RATIO (the old version forced both
+    frames into 512x512, skewing every non-square satellite tile).
+
+    Returns dict(mask_b64, side_b64, description, stats, regions).
+    `regions` = top changed clusters as 0-1000-normalised boxes for the
+    audit trace and georeferenced GeoJSON export.
     """
-    size = (config.EVIDENCE_MAX_SIDE, config.EVIDENCE_MAX_SIDE)
     before = load_pil(decode_b64(before_b64)).convert("RGB")
     after = load_pil(decode_b64(after_b64)).convert("RGB")
 
-    # work on a common analysis size (smaller = faster + more robust)
-    aw, ah = 512, 512
+    # common analysis size: fit within a square budget WITHOUT distortion
+    max_analysis = 512
+    scale = max_analysis / max(before.size[0], before.size[1], 1)
+    aw = max(32, int(before.size[0] * scale))
+    ah = max(32, int(before.size[1] * scale))
     a_small = before.resize((aw, ah), Image.BILINEAR)
     b_small = after.resize((aw, ah), Image.BILINEAR)
     ga = np.asarray(a_small.convert("L"), dtype=np.float32)
@@ -141,20 +149,27 @@ def render_change_map(before_b64: str, after_b64: str) -> Dict[str, Any]:
 
     # colour overlay on AFTER: red where changed, alpha by diff magnitude
     overlay = np.asarray(b_small, dtype=np.float32).copy()
-    heat = np.clip((diff - thr) / max(diff.max() - thr, 1.0), 0, 1)
+    heat = np.clip((diff - thr) / max(float(diff.max()) - thr, 1.0), 0, 1)
     for c, gain in ((0, 255.0), (1, 40.0), (2, 40.0)):
         overlay[..., c] = np.where(mask, overlay[..., c] * (1 - heat) + gain * heat,
                                    overlay[..., c])
-    result = Image.fromarray(overlay.astype(np.uint8)).resize(after.size, Image.BILINEAR)
+    result = Image.fromarray(overlay.astype(np.uint8)).resize(after.size,
+                                                              Image.BILINEAR)
     draw = ImageDraw.Draw(result)
     f = _font(max(14, int(after.size[1] * 0.03)))
     draw.rectangle([8, 8, 8 + f.size * 9, 14 + f.size * 1.6], fill=_TEXT_BG)
     draw.text((16, 12), f"CHANGE MAP · {changed_pct:.1f}% pixels changed",
               font=f, fill=_TEXT_FG)
 
+    # changed-region clusters (connected components, largest first)
+    regions = label_changed_regions(mask, max_regions=6)
+
     stats = {
-        "method": "grayscale diff, gaussian blur, mean+%.1f*std threshold" % config.CHANGE_DIFF_K,
+        "method": "aspect-preserving grayscale diff, gaussian blur, "
+                  "mean+%.1f*std threshold" % config.CHANGE_DIFF_K,
+        "analysis_size": [aw, ah],
         "changed_pixels_pct": round(changed_pct, 2),
+        "regions": regions,
         "verdict": ("significant change detected" if changed_pct >= config.CHANGE_MIN_REGION_PCT * 100
                     else "little or no significant change detected"),
         "note": "heuristic estimate — reference masks were not provided",
@@ -164,9 +179,56 @@ def render_change_map(before_b64: str, after_b64: str) -> Dict[str, Any]:
     # labelled side-by-side
     side_b64, _ = render_side_by_side(before, after, "BEFORE", "AFTER")
     desc = (f"Spatial change map: {changed_pct:.1f}% of pixels exceed the change "
-            f"threshold ({stats['verdict']}).")
+            f"threshold ({stats['verdict']}); {len(regions)} dominant region(s) "
+            f"extracted.")
     return {"mask_b64": mask_b64, "side_b64": side_b64,
-            "description": desc, "stats": stats}
+            "description": desc, "stats": stats, "regions": regions}
+
+
+def label_changed_regions(mask: np.ndarray,
+                          max_regions: int = 6) -> List[Dict[str, Any]]:
+    """
+    Connected-component labelling (BFS, 4-neighbourhood) on the change mask.
+    Returns the largest clusters as 0-1000-normalised bboxes with pixel areas:
+    [{bbox_norm, pixels}] — consumable by the trace UI and the GeoJSON
+    change-polygon export (normalised, so georeference applies cleanly).
+    """
+    h, w = mask.shape
+    visited = np.zeros_like(mask, dtype=bool)
+    regions: List[Tuple[int, int, int, int, int]] = []   # x1,y1,x2,y2,area
+    for sy in range(h):
+        row = mask[sy]
+        for sx in range(w):
+            if not row[sx] or visited[sy, sx]:
+                continue
+            q = deque([(sy, sx)])
+            visited[sy, sx] = True
+            x1 = x2 = sx
+            y1 = y2 = sy
+            area = 0
+            while q:
+                cy, cx = q.popleft()
+                area += 1
+                if cx < x1: x1 = cx
+                if cx > x2: x2 = cx
+                if cy < y1: y1 = cy
+                if cy > y2: y2 = cy
+                for ny, nx in ((cy-1, cx), (cy+1, cx), (cy, cx-1), (cy, cx+1)):
+                    if 0 <= ny < h and 0 <= nx < w and mask[ny, nx] \
+                            and not visited[ny, nx]:
+                        visited[ny, nx] = True
+                        q.append((ny, nx))
+            if area >= 12:                     # ignore specks
+                regions.append((x1, y1, x2, y2, area))
+    regions.sort(key=lambda r: -r[4])
+    out = []
+    for x1, y1, x2, y2, area in regions[:max_regions]:
+        out.append({
+            "bbox_norm": [round(x1 / w * 1000, 1), round(y1 / h * 1000, 1),
+                          round((x2 + 1) / w * 1000, 1), round((y2 + 1) / h * 1000, 1)],
+            "pixels": int(area),
+        })
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -216,6 +278,8 @@ def input_view_b64(b64: str, label: str) -> Tuple[str, str]:
 
 
 def _to_b64(img: Image.Image) -> str:
+    """Evidence images as high-quality JPEG — satellite imagery needs no
+    alpha, and this cuts the JSON payload ~5-8x versus PNG."""
     buf = io.BytesIO()
-    img.save(buf, format="PNG", optimize=True)
+    img.convert("RGB").save(buf, format="JPEG", quality=87)
     return base64.b64encode(buf.getvalue()).decode()

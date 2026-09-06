@@ -33,7 +33,8 @@ class MockVLM:
                     images: Optional[List[str]] = None,
                     max_tokens: Optional[int] = None,
                     temperature: Optional[float] = None,
-                    response_json: bool = False) -> Dict[str, Any]:
+                    response_json: bool = False,
+                    model: Optional[str] = None) -> Dict[str, Any]:
         self.request_count += 1
         system = str(messages[0].get("content", ""))
         user = str(messages[1].get("content", "")) if len(messages) > 1 else ""

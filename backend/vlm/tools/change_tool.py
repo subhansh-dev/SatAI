@@ -30,7 +30,8 @@ class ChangeDescTool(BaseTool):
     ps_requirement = "Mandatory: multitemporal change understanding + change-VQA"
 
     async def execute(self, query: str, images: list[str],
-                      metadata: Dict[str, Any] | None = None, **params) -> Dict[str, Any]:
+                      metadata: Dict[str, Any] | None = None,
+                      model: str | None = None, **params) -> Dict[str, Any]:
         metadata = metadata or {}
         dates = metadata.get("dates") or []
         date_a, date_b = (dates + ["Image 1", "Image 2"])[:2]
@@ -57,7 +58,7 @@ class ChangeDescTool(BaseTool):
             + "End with `CONFIDENCE: <0-100>`."
         )
         text, conf, meta = await self.ask(SYSTEM, user, images[:2],
-                                          max_tokens=768)
+                                          max_tokens=768, model=model)
         return {"text": text, "confidence": conf, "model": meta["model"],
                 "metadata": {"dates": [str(date_a), str(date_b)],
                              "self_reported": meta["self_reported_confidence"]}}

@@ -4,6 +4,7 @@ Agentic endpoints + direct-tool endpoints + samples + history + reports.
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import logging
 from typing import Optional
@@ -122,19 +123,50 @@ async def upload_image(file: UploadFile = File(...)) -> dict:
     data = await file.read()
     if len(data) > MAX_UPLOAD:
         raise HTTPException(413, f"Image too large (max {MAX_UPLOAD // (1024*1024)} MB)")
+    b64 = base64.b64encode(data).decode()
+    # PIL handles PNG/JPEG/8-bit TIFF but NOT multi-band uint16 GeoTIFFs —
+    # fall back to tifffile for dimensions before rejecting valid rasters.
+    pil, width, height, bands = None, 0, 0, 0
     try:
-        b64 = base64.b64encode(data).decode()
         pil = load_pil(data)
-    except Exception as e:
-        raise HTTPException(400, f"Could not decode image: {e}")
+        width, height = pil.size
+        bands = len(pil.getbands())
+    except Exception:
+        try:
+            import io as _io
+            import tifffile as _tf
+            with _tf.TiffFile(_io.BytesIO(data)) as tif:
+                s0 = tif.series[0]
+                axes, shape = s0.axes, list(s0.shape)
+                if "S" in axes:
+                    bands = int(shape[axes.index("S")])
+                    hw = [d for i, d in enumerate(shape) if axes[i] != "S"]
+                else:
+                    bands, hw = 1, shape[-2:]
+                height, width = int(hw[0]), int(hw[1])
+        except Exception as e:
+            raise HTTPException(400, f"Could not decode image: {e}")
     fmt = sniff_format(data)
-    modality, reason = detect_modality(data, name=file.filename, pil_image=pil)
+    modality, reason = detect_modality(
+        data, name=file.filename, pil_image=pil,
+        tmeta={"num_bands": bands} if bands else None)
+    # browsers cannot render TIFF — give the UI a JPEG preview so GeoTIFF
+    # uploads don't show as broken images during the demo
+    preview_b64 = None
+    if fmt in ("tiff", "geotiff"):
+        try:
+            from .image_utils import prepare_for_vlm
+            preview_b64, _ = await asyncio.to_thread(
+                prepare_for_vlm, data, modality == "sar", 768, 82)
+        except Exception:
+            preview_b64 = None
     return {
         "base64": b64, "filename": file.filename,
         "size_bytes": len(data), "format": fmt,
-        "width": pil.size[0], "height": pil.size[1],
-        "bands": len(pil.getbands()),
+        "width": width, "height": height,
+        "bands": bands,
         "detected_modality": modality, "modality_reason": reason,
+        "preview_b64": preview_b64,
     }
 
 

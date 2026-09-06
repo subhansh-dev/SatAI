@@ -121,7 +121,7 @@ function renderPreview() {
       : (im.detected_modality || 'image').toUpperCase();
     return `
       <div class="pv-item" title="${esc(im.filename || '')} — ${im.width}×${im.height}, ${im.bands} band(s), ${esc(im.format || '?')}">
-        <img src="data:application/octet-stream;base64,${im.base64}" alt="">
+        <img src="data:${im.preview_b64 ? 'image/jpeg' : 'application/octet-stream'};base64,${im.preview_b64 || im.base64}" alt="">
         <button class="pv-x" data-i="${i}" title="Remove">&times;</button>
         <div class="pv-tag">${role}</div>
       </div>`;
@@ -268,8 +268,8 @@ function addAIMsg(data, clientMs) {
 function renderEvidence(items) {
   if (!items.length) return '';
   const cards = items.map(ev => `
-    <figure class="ev-card" onclick="lightbox('${ev.image_base64 ? 'data:image/png;base64,' + ev.image_base64 : ''}')">
-      <img src="data:image/png;base64,${ev.image_base64}" alt="${esc(ev.title)}" loading="lazy">
+    <figure class="ev-card" onclick="lightbox('${ev.image_base64 ? 'data:' + (ev.mime_type || 'image/jpeg') + ';base64,' + ev.image_base64 : ''}')">
+      <img src="data:${ev.mime_type || 'image/jpeg'};base64,${ev.image_base64}" alt="${esc(ev.title)}" loading="lazy">
       <figcaption class="ev-cap"><b>${esc(ev.title)}</b>${esc(ev.description || '')}</figcaption>
     </figure>`).join('');
   return `<div class="evidence">${cards}</div>`;

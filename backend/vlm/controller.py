@@ -11,19 +11,23 @@ Implements the PS-mandated orchestration loop:
 """
 from __future__ import annotations
 
+import asyncio
 import logging
+import re
 import time
 from collections import OrderedDict
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from core import config
-from .image_utils import decode_b64, prepare_for_vlm, prepare_pair_for_vlm
+from .image_utils import (
+    decode_b64, prepare_for_vlm, prepare_pair_for_vlm, sar_stats,
+)
 from .input_validator import validate_inputs
 from .schemas import (
     ExecutionTrace, ImageInput, Severity, ToolOutput, ValidationReport,
     VisualEvidenceItem, VLMResponse, QuerySummary,
 )
-from .tool_registry import TASK_LABELS, registry
+from .tool_registry import TASK_LABELS, TASK_TOOLS, registry, select_model
 from .vlm_client import VLMClient, VLMError
 from .visual_evidence import (
     input_view_b64, render_change_map, render_grounding, side_by_side_b64,
@@ -34,6 +38,7 @@ from .tools.ground_tool import GroundTool
 from .tools.change_tool import ChangeDescTool
 from .tools.sar_fusion_tool import SARFusionTool
 from .tools.numeric_tool import NumericTool
+from .tools.spectral_tool import SpectralIndexTool
 
 logger = logging.getLogger("satai.controller")
 
@@ -51,18 +56,28 @@ _CLASSIFY_SYSTEM = (
     "compound — the request mixes several of the above"
 )
 
-_COUNT_RE = __import__("re").compile(
+_COUNT_RE = re.compile(
     r"\b(how many|number of|count|how much (?:area|percentage)|what percentage)\b",
-    __import__("re").IGNORECASE)
-_GROUND_RE = __import__("re").compile(
+    re.IGNORECASE)
+_GROUND_RE = re.compile(
     r"\b(highlight|locate|find|mark|show me|where is|bound(ing|ary) box|outline)\b",
-    __import__("re").IGNORECASE)
-_CHANGE_RE = __import__("re").compile(
+    re.IGNORECASE)
+_CHANGE_RE = re.compile(
     r"\b(chang|differ|before|after|two dates|between (?:these )?(?:two |the )?(?:dates|images|years))\b",
-    __import__("re").IGNORECASE)
-_DESCRIBE_RE = __import__("re").compile(
+    re.IGNORECASE)
+_DESCRIBE_RE = re.compile(
     r"\b(describe|caption|what do you see|summaris|summariz|land.?cover)\b",
-    __import__("re").IGNORECASE)
+    re.IGNORECASE)
+_SPECTRAL_RE = re.compile(
+    r"\b(ndvi|ndwi|ndbi|vegetation index|water index|built[- ]?up index)\b",
+    re.IGNORECASE)
+
+# clause splitter for compound-query decomposition (PS: agentic planning)
+_SPLIT_RE = re.compile(
+    r"\?\s*|\n+|;\s*|,\s*(?:and\s+)?(?:then\s+)?(?=what|where|how many|how much|"
+    r"which|describe|highlight|locate|find|count|identify|estimate|show)|"
+    r"\s+and also\s+|\s+also\s+|\s+then\s+|\s+plus\s+",
+    re.IGNORECASE)
 
 
 class QueryStore:
@@ -113,6 +128,7 @@ class Controller:
         registry.register(GroundTool(self.vlm))
         registry.register(ChangeDescTool(self.vlm))
         registry.register(SARFusionTool(self.vlm))
+        registry.register(SpectralIndexTool(self.vlm))
 
     # ------------------------------------------------------------ pipeline
     async def execute(self, query: str, images: List[ImageInput],
@@ -124,7 +140,10 @@ class Controller:
         ts = {"received": time.strftime("%Y-%m-%dT%H:%M:%SZ")}
 
         # ---- Step 1: input validation (PS: compatibility checking) --------
-        validation = validate_inputs(images, mode, metadata)
+        # CPU-bound raster probing runs off the event loop (one huge TIFF
+        # used to stall every concurrent request)
+        validation = await asyncio.to_thread(
+            validate_inputs, images, mode, metadata)
         if not validation.accepted:
             errors = [i.message for i in validation.issues
                       if i.level == Severity.ERROR]
@@ -142,44 +161,25 @@ class Controller:
                 query, validation, mode)
         ts["classified"] = time.strftime("%Y-%m-%dT%H:%M:%SZ")
 
-        # ---- Step 3: tool selection (predefined registry) ------------------
-        n_images = len(validation.images)
-        tool_ids = registry.select(task_type, n_images)
-        # cross-modal: grounding sub-step needs only 1 image; drop if explicit
-        if task_type == "cross_modal" and metadata.get("no_grounding"):
-            tool_ids = ["sar_fusion"]
-        logger.info("task=%s tools=%s", task_type, tool_ids)
-
         # ---- Step 4: prepare VLM-ready views of every image ----------------
-        vlm_images: List[str] = []
-        prepare_notes: List[Dict[str, Any]] = []
         pair_task = task_type in ("bi_change", "bi_change_vqa") or \
             (task_type == "compound" and len(images) >= 2)
-        try:
-            if pair_task and len(images) >= 2:
-                # joint radiometric normalisation — mandatory for honest diffs
-                raws = [decode_b64(i.data) for i in images[:2]]
-                sar = [validation.images[i].detected_modality == "sar"
-                       for i in range(2)]
-                b64a, b64b, ia, ib = prepare_pair_for_vlm(
-                    raws[0], raws[1], sar[0], sar[1],
-                    max_side=config.VLM_MAX_SIDE)
-                vlm_images, prepare_notes = [b64a, b64b], [ia, ib]
-                images_rest = images[2:]
-                rest_start = 2
-            else:
-                images_rest = images
-                rest_start = 0
-            for i, img_in in enumerate(images_rest, start=rest_start):
-                raw = decode_b64(img_in.data)
-                is_sar = (validation.images[i].detected_modality == "sar"
-                          if i < len(validation.images) else False)
-                b64, info = prepare_for_vlm(raw, is_sar=is_sar,
-                                            max_side=config.VLM_MAX_SIDE)
-                vlm_images.append(b64)
-                prepare_notes.append(info)
-        except ValueError:
-            pass  # already rejected during validation
+        (vlm_images, prepare_notes, rasters, sar_stats_out) = \
+            await asyncio.to_thread(
+                self._prepare_images_sync, images, validation, pair_task,
+                task_type)
+        if not vlm_images:
+            return self._reject(query, mode, validation,
+                                ["Image preparation failed — the uploaded "
+                                 "rasters could not be decoded into a VLM "
+                                 "view."], t_start, ts)
+        if rasters:
+            # band-math tools work on the ORIGINAL pixels, never the 8-bit view
+            metadata["_rasters"] = rasters
+        if sar_stats_out:
+            metadata["sar_stats"] = sar_stats_out
+            notes.append("Algorithmic SAR statistics computed from the raw "
+                         "backscatter and injected into the fusion prompt.")
         if any(p.get("downscaled_to") or
                (p.get("stretch") not in (None, "none")) or
                p.get("normalisation") for p in prepare_notes):
@@ -188,41 +188,107 @@ class Controller:
                          + (", shared pair normalisation for honest change "
                             "comparison" if pair_task else "") + ").")
 
-        # ---- Step 5: execute tools with permitted params only --------------
-        tool_outputs: List[ToolOutput] = []
-        for tid in tool_ids:
+        # ---- Step 5: agentic plan — decompose compound queries -------------
+        plan: List[Tuple[str, str]] = []          # (sub_query, tool_id)
+        if task_type == "compound":
+            plan = self._decompose(query, len(vlm_images))
+            if plan:
+                notes.append("Query decomposed into "
+                             f"{len({p[1] for p in plan})} specialist "
+                             f"step(s) across {len(plan)} sub-question(s).")
+        if not plan:
+            tool_ids = registry.select(task_type, len(vlm_images))
+            if task_type == "cross_modal" and metadata.get("no_grounding"):
+                tool_ids = ["sar_fusion"]
+            if task_type == "compound" and not tool_ids:
+                # decomposition found no separable clauses — run the standard
+                # compound bundle instead of nothing
+                tool_ids = (["change_desc", "vqa", "caption"]
+                            if len(vlm_images) >= 2 else ["caption", "vqa"])
+            plan = [(query, tid) for tid in tool_ids]
+        # drop tools whose image requirement cannot be met (previously the
+        # pipeline crashed silently through and the VLM was asked about
+        # images it never received)
+        executable: List[Tuple[str, str]] = []
+        for sq, tid in plan:
             tool = registry.get(tid)
             if tool is None:
                 notes.append(f"tool '{tid}' missing — skipped")
                 continue
+            if (tool.required_images or 1) > len(vlm_images):
+                notes.append(f"tool '{tid}' needs {tool.required_images} "
+                             f"images but {len(vlm_images)} available — skipped")
+                continue
+            executable.append((sq, tid))
+        logger.info("task=%s plan=%s", task_type,
+                    [tid for _q, tid in executable])
+
+        # ---- Step 5b: model registry selection (PS: select model) ---------
+        model_hint, model_reason = self._select_model(task_type, metadata)
+        notes.append(f"Model registry: routed to '{model_hint}' — {model_reason}")
+
+        # ---- Step 5c: execute tools with permitted params only ------------
+        tool_outputs: List[ToolOutput] = []
+
+        async def run_one(sub_query: str, tid: str) -> Optional[ToolOutput]:
+            tool = registry.get(tid)
+            if tool is None:
+                return None
             params = self._permitted_params(tool, metadata)
             t0 = time.time()
             try:
                 raw_out = await tool.execute(
-                    query=query, images=vlm_images,
-                    metadata=metadata, **params)
+                    query=sub_query, images=vlm_images,
+                    metadata=metadata, model=model_hint, **params)
             except VLMError as e:
                 logger.warning("tool %s VLM error: %s", tid, e)
-                tool_outputs.append(ToolOutput(
+                return ToolOutput(
                     tool_id=tid,
                     text=f"The vision-language backend could not complete this "
                          f"step ({e}). Check VLM_MODE / API key / server.",
                     confidence=0.0, confidence_source="error",
                     parameters_used=params,
-                    execution_time_ms=round((time.time() - t0) * 1000, 2)))
-                continue
+                    execution_time_ms=round((time.time() - t0) * 1000, 2))
+            except TypeError:
+                # tool not yet accepting the model kwarg — retry without it
+                try:
+                    raw_out = await tool.execute(
+                        query=sub_query, images=vlm_images,
+                        metadata=metadata, **params)
+                except Exception as e:
+                    logger.exception("tool %s crashed", tid)
+                    return ToolOutput(
+                        tool_id=tid, text=f"Specialist tool '{tid}' failed: {e}",
+                        confidence=0.0, confidence_source="error",
+                        parameters_used=params,
+                        execution_time_ms=round((time.time() - t0) * 1000, 2))
             except Exception as e:  # tool bug must not kill the pipeline
                 logger.exception("tool %s crashed", tid)
-                tool_outputs.append(ToolOutput(
+                return ToolOutput(
                     tool_id=tid, text=f"Specialist tool '{tid}' failed: {e}",
                     confidence=0.0, confidence_source="error",
                     parameters_used=params,
-                    execution_time_ms=round((time.time() - t0) * 1000, 2)))
-                continue
+                    execution_time_ms=round((time.time() - t0) * 1000, 2))
             raw_out.setdefault("tool_id", tid)
-            tool_outputs.append(ToolOutput(**{
+            if sub_query and sub_query != query:
+                raw_out.setdefault("metadata", {})
+                if raw_out["metadata"] is None:
+                    raw_out["metadata"] = {}
+                raw_out["metadata"]["sub_query"] = sub_query
+            return ToolOutput(**{
                 k: v for k, v in raw_out.items() if k in ToolOutput.model_fields
-            }))
+            })
+
+        if len(executable) > 1:
+            # independent specialists run in parallel (latency ≈ slowest tool,
+            # not the sum); gather preserves order for the audit trace
+            results = await asyncio.gather(
+                *[run_one(sq, tid) for sq, tid in executable])
+            tool_outputs = [r for r in results if r is not None]
+        elif executable:
+            single = await run_one(*executable[0])
+            if single is not None:
+                tool_outputs = [single]
 
         ts["tools_done"] = time.strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -230,12 +296,27 @@ class Controller:
         final_text = self._assemble_response(task_type, tool_outputs, query)
         confidence = self._overall_confidence(tool_outputs)
 
-        # ---- Step 7: visual evidence (PS: text + visual results) -----------
-        evidence = self._build_evidence(task_type, tool_outputs, vlm_images,
-                                        validation)
+        # ---- Step 7: change analysis (single computation, reused) ----------
+        change_info = None
+        if task_type in ("bi_change", "bi_change_vqa", "compound") \
+                and len(vlm_images) >= 2:
+            try:
+                change_info = await asyncio.to_thread(
+                    render_change_map, vlm_images[0], vlm_images[1])
+                for o in tool_outputs:
+                    if o.tool_id == "change_desc":
+                        o.change_stats = change_info["stats"]
+            except Exception:
+                logger.exception("change-map rendering failed")
 
-        # ---- Step 8: GeoJSON for grounding outputs -------------------------
-        geojson = self._boxes_to_geojson(tool_outputs, validation, metadata)
+        # ---- Step 8: visual evidence (PS: text + visual results) -----------
+        evidence = await asyncio.to_thread(
+            self._build_evidence, task_type, tool_outputs, vlm_images,
+            validation, change_info)
+
+        # ---- Step 9: GeoJSON for grounding + change regions ----------------
+        geojson = self._boxes_to_geojson(tool_outputs, validation, metadata,
+                                         change_info)
 
         # ---- Step 9: auditable execution trace ------------------------------
         total_ms = round((time.time() - t_start) * 1000, 2)
@@ -326,6 +407,8 @@ class Controller:
 
     def _rule_classify(self, query: str, n: int) -> str:
         q = query or ""
+        if n == 1 and _SPECTRAL_RE.search(q):
+            return "spectral_index"
         has_change = bool(_CHANGE_RE.search(q))
         has_count = bool(_COUNT_RE.search(q))
         has_ground = bool(_GROUND_RE.search(q))
@@ -364,6 +447,111 @@ class Controller:
         return {k: metadata[k] for k in getattr(tool, "allowed_params", [])
                 if k in metadata}
 
+    # ------------------------------------------------------------ prep
+    @staticmethod
+    def _prepare_images_sync(images: List[ImageInput],
+                             validation: ValidationReport,
+                             pair_task: bool, task_type: str):
+        """
+        (CPU-bound, runs in a worker thread)
+        Decode + radiometrically normalise every raster for the VLM, keep the
+        ORIGINAL bytes aside for band-math tools, and measure algorithmic SAR
+        statistics for cross-modal prompts.
+        """
+        vlm_images: List[str] = []
+        prepare_notes: List[Dict[str, Any]] = []
+        rasters: List[Dict[str, Any]] = []
+        sar_out: Dict[str, Any] = {}
+
+        raws: List[Optional[bytes]] = []
+        for img_in in images:
+            try:
+                raws.append(decode_b64(img_in.data))
+            except ValueError:
+                raws.append(None)
+        is_sar = [bool(i < len(validation.images)
+                       and validation.images[i].detected_modality == "sar")
+                  for i in range(len(raws))]
+
+        if pair_task and len(raws) >= 2 and raws[0] is not None \
+                and raws[1] is not None:
+            # joint radiometric normalisation — mandatory for honest diffs
+            b64a, b64b, ia, ib = prepare_pair_for_vlm(
+                raws[0], raws[1], is_sar[0], is_sar[1],
+                max_side=config.VLM_MAX_SIDE)
+            vlm_images, prepare_notes = [b64a, b64b], [ia, ib]
+            rest = range(2, len(raws))
+        else:
+            rest = range(len(raws))
+        for i in rest:
+            if raws[i] is None:
+                continue
+            b64, info = prepare_for_vlm(raws[i], is_sar=is_sar[i],
+                                        max_side=config.VLM_MAX_SIDE)
+            vlm_images.append(b64)
+            prepare_notes.append(info)
+
+        # original pixels for spectral band-math + geo context
+        for i, raw in enumerate(raws):
+            if raw is None:
+                continue
+            meta = validation.images[i] if i < len(validation.images) else None
+            geo = None
+            if meta is not None:
+                geo = dict(meta.extra_geo or {})
+                geo["ground_sample_dist_m"] = meta.ground_sample_dist_m
+                geo["epsg"] = (meta.extra_geo or {}).get("epsg")
+            rasters.append({"raw": raw, "is_sar": is_sar[i], "geo": geo})
+
+        # measured SAR backscatter statistics (cross-modal credibility)
+        if task_type in ("cross_modal", "compound"):
+            for i, raw in enumerate(raws):
+                if raw is not None and is_sar[i]:
+                    st = sar_stats(raw)
+                    if st:
+                        sar_out[f"image_{i + 1}"] = st
+        return vlm_images, prepare_notes, rasters, sar_out
+
+    # ------------------------------------------------------------ decomposition
+    def _decompose(self, query: str, n_images: int) -> List[Tuple[str, str]]:
+        """
+        Agentic query decomposition: split a compound request into
+        sub-questions and route each to its specialist tool (zero extra VLM
+        cost — deterministic rule-based planner on clause boundaries).
+        Returns [(sub_query, tool_id)] in analyst workflow order (describe →
+        change → answer → count → index → localise).
+        """
+        clauses = [c.strip(" ;,.\"") for c in _SPLIT_RE.split(query or "")]
+        clauses = [c for c in clauses if len(c) > 3]
+        if len(clauses) < 2:
+            return []
+        plan: List[Tuple[str, str]] = []
+        for clause in clauses:
+            if _SPECTRAL_RE.search(clause) and n_images == 1:
+                task = "spectral_index"
+            else:
+                task = self._rule_classify(clause, n_images)
+            tools = TASK_TOOLS.get(task, ["vqa"])
+            tid = tools[0] if tools else "vqa"
+            if not plan or plan[-1][1] != tid or tid != "vqa":
+                plan.append((clause, tid))
+        order = {"caption": 0, "change_desc": 1, "sar_fusion": 1, "vqa": 2,
+                 "numeric": 3, "spectral_index": 4, "ground": 5}
+        plan.sort(key=lambda p: order.get(p[1], 9))
+        return plan
+
+    # ------------------------------------------------------------ model registry
+    @staticmethod
+    def _select_model(task_type: str,
+                      metadata: Dict[str, Any]) -> Tuple[str, str]:
+        forced = metadata.get("model_hint")
+        if isinstance(forced, str) and forced in ("lora", "base", "flagship"):
+            return forced, "user-forced model hint"
+        # the served-model probe happens lazily at first query; before that we
+        # optimistically assume the adapter is present and let the client's
+        # resolution fall back gracefully
+        return select_model(task_type, config.VLM_MODE, True)
+
     def _assemble_response(self, task_type: str, outputs: List[ToolOutput],
                            query: str) -> str:
         good = [o for o in outputs if o.text]
@@ -380,19 +568,29 @@ class Controller:
             "numeric": "QUANTITATIVE ANSWER",
             "ground": "LOCALISATION",
             "sar_fusion": "OPTICAL + SAR FUSION",
+            "spectral_index": "SPECTRAL INDEX",
         }
-        parts = [f"**{headers.get(o.tool_id, o.tool_id.upper())}**\n{o.text}"
-                 for o in good]
+        parts = []
+        for o in good:
+            head = headers.get(o.tool_id, o.tool_id.upper())
+            sub = ""
+            if o.metadata and o.metadata.get("sub_query"):
+                sub = f"\n_{o.metadata['sub_query']}_"
+            parts.append(f"**{head}**{sub}\n{o.text}")
         return "\n\n".join(parts)
 
     @staticmethod
     def _overall_confidence(outputs: List[ToolOutput]) -> float:
-        """Weighted mean — grounding/numeric parse success earns full weight,
-        unself-reported fallbacks are dinged."""
+        """Weighted mean — measured/algorithmic results and parse-success earn
+        full weight, unself-reported fallbacks are dinged."""
         if not outputs:
             return 0.0
         weights = {"model_self_report": 1.0, "box_scores+parse": 1.0,
-                   "parsed_answer+model_self_report": 1.0, "unparsed": 0.6,
+                   "parsed_answer+model_self_report": 1.0,
+                   "self_consistency+model_self_report": 1.0,
+                   "algorithmic_deterministic": 1.0,
+                   "algorithmic_degenerate": 0.4,
+                   "unparsed": 0.6,
                    "error": 0.0}
         num = sum(o.confidence * weights.get(o.confidence_source, 0.8)
                   for o in outputs)
@@ -401,7 +599,9 @@ class Controller:
 
     def _build_evidence(self, task_type: str, outputs: List[ToolOutput],
                         vlm_images: List[str],
-                        validation: ValidationReport) -> List[VisualEvidenceItem]:
+                        validation: ValidationReport,
+                        change_info: Optional[Dict[str, Any]] = None
+                        ) -> List[VisualEvidenceItem]:
         items: List[VisualEvidenceItem] = []
         try:
             for o in outputs:
@@ -413,16 +613,27 @@ class Controller:
                             title=f"Grounding — {len(o.bounding_boxes)} region(s)",
                             image_base64=ann, description=desc,
                             stats={"boxes": o.bounding_boxes}))
-            if task_type in ("bi_change", "bi_change_vqa", "compound") \
-                    and len(vlm_images) >= 2:
-                cm = render_change_map(vlm_images[0], vlm_images[1])
+                spectral = (o.metadata or {}).get("spectral") \
+                    if o.metadata else None
+                if o.tool_id == "spectral_index" and spectral \
+                        and spectral.get("preview_b64"):
+                    items.append(VisualEvidenceItem(
+                        kind="index_map",
+                        title=f"{(spectral.get('index') or 'index').upper()} "
+                              f"colour-ramped field",
+                        image_base64=spectral["preview_b64"],
+                        description="Algorithmic band-math over the original "
+                                    "spectral bands (ramp: low → high).",
+                        stats=spectral.get("stats")))
+            if change_info and len(vlm_images) >= 2:
                 items.append(VisualEvidenceItem(
                     kind="change_map", title="Estimated spatial change map",
-                    image_base64=cm["mask_b64"], description=cm["description"],
-                    stats=cm["stats"]))
+                    image_base64=change_info["mask_b64"],
+                    description=change_info["description"],
+                    stats=change_info["stats"]))
                 items.append(VisualEvidenceItem(
                     kind="side_by_side", title="Before / After comparison",
-                    image_base64=cm["side_b64"],
+                    image_base64=change_info["side_b64"],
                     description="Bi-temporal pair, labelled."))
             elif task_type == "cross_modal" and len(vlm_images) >= 2:
                 s, desc = side_by_side_b64(vlm_images[0], vlm_images[1],
@@ -432,6 +643,8 @@ class Controller:
                     image_base64=s, description=desc))
             # input views for every image (evidence strip)
             for i, meta in enumerate(validation.images[:4]):
+                if i >= len(vlm_images):
+                    break
                 label = f"Image {i + 1} · {meta.detected_modality}"
                 if meta.format:
                     label += f" · {meta.format}"
@@ -444,35 +657,44 @@ class Controller:
                                 f"{meta.detected_modality}"))
         except Exception:
             logger.exception("visual evidence rendering failed")
+        for item in items:
+            item.mime_type = "image/jpeg"   # evidence renders as JPEG
         return items
 
     def _boxes_to_geojson(self, outputs: List[ToolOutput],
                           validation: ValidationReport,
-                          metadata: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+                          metadata: Dict[str, Any],
+                          change_info: Optional[Dict[str, Any]] = None
+                          ) -> Optional[Dict[str, Any]]:
+        features: List[Dict[str, Any]] = []
+        img_meta = validation.images[0] if validation.images else None
+        w = (img_meta.width or 1) if img_meta else 1
+        h = (img_meta.height or 1) if img_meta else 1
+        geo = (img_meta.extra_geo or {}) if img_meta else {}
+        crs_label = "image-pixel"
+        from .image_utils import pixel_to_geo
+
+        def ring_for(px: List[float]) -> Tuple[Any, List[Any], str]:
+            label, ring = pixel_to_geo(px, w, h, geo)
+            if ring is None:
+                ring = [[px[0], px[1]], [px[2], px[1]],
+                        [px[2], px[3]], [px[0], px[3]], [px[0], px[1]]]
+                note = "pixel coordinates (no georeference)"
+            else:
+                note = "map coordinates from GeoTIFF geotransform"
+            return label, ring, note
+
+        # grounding boxes
         for o in outputs:
-            if not o.bounding_boxes:
+            if not o.bounding_boxes or not img_meta:
                 continue
-            img_meta = validation.images[0] if validation.images else None
-            if not img_meta:
-                continue
-            w, h = img_meta.width or 1, img_meta.height or 1
-            geo = img_meta.extra_geo or {}
-            crs_label, ring_transform = "image-pixel", None
-            features = []
             for box in o.bounding_boxes:
                 try:
                     x1, y1, x2, y2 = (float(v) for v in box["bbox"])
                 except (KeyError, TypeError, ValueError):
                     continue
                 px = [x1 / 1000 * w, y1 / 1000 * h, x2 / 1000 * w, y2 / 1000 * h]
-                from .image_utils import pixel_to_geo
-                crs_label, ring = pixel_to_geo(px, w, h, geo)
-                if ring is None:
-                    ring = [[px[0], px[1]], [px[2], px[1]],
-                            [px[2], px[3]], [px[0], px[3]], [px[0], px[1]]]
-                    coords_note = "pixel coordinates (no georeference)"
-                else:
-                    coords_note = "map coordinates from GeoTIFF geotransform"
+                crs_label, ring, coords_note = ring_for(px)
                 features.append({
                     "type": "Feature",
                     "properties": {
@@ -483,19 +705,42 @@ class Controller:
                     },
                     "geometry": {"type": "Polygon", "coordinates": [ring]},
                 })
-            fc = {
-                "type": "FeatureCollection",
-                "crs": crs_label,
-                "source_image": {
-                    "width": w, "height": h,
-                    "format": img_meta.format,
-                    "georeferenced": img_meta.georeferenced,
-                    "ground_sample_dist_m": img_meta.ground_sample_dist_m,
-                },
-                "features": features,
-            }
-            return fc
-        return None
+
+        # changed-region polygons — Bhuvan-style flood/urban-growth layer export
+        if change_info:
+            regions = (change_info.get("stats") or {}).get("regions") or []
+            for k, region in enumerate(regions, 1):
+                nx1, ny1, nx2, ny2 = region["bbox_norm"]
+                px = [nx1 / 1000 * w, ny1 / 1000 * h,
+                      nx2 / 1000 * w, ny2 / 1000 * h]
+                crs_label, ring, coords_note = ring_for(px)
+                features.append({
+                    "type": "Feature",
+                    "properties": {
+                        "label": f"changed-region {k}",
+                        "pixels_changed": region.get("pixels"),
+                        "source": "heuristic change map",
+                        "coordinate_system": coords_note,
+                    },
+                    "geometry": {"type": "Polygon", "coordinates": [ring]},
+                })
+
+        if not features:
+            return None
+        return {
+            "type": "FeatureCollection",
+            "crs": crs_label,                     # display string
+            "crs_ogc": {"type": "name",           # OGC-compliant member
+                        "properties": {"name": crs_label}},
+            "source_image": {
+                "width": w, "height": h,
+                "format": img_meta.format if img_meta else None,
+                "georeferenced": img_meta.georeferenced if img_meta else False,
+                "ground_sample_dist_m": (img_meta.ground_sample_dist_m
+                                         if img_meta else None),
+            },
+            "features": features,
+        }
 
     # ------------------------------------------------------------ reject
     def _reject(self, query: str, mode: str, validation: ValidationReport,

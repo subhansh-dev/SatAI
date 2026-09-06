@@ -127,26 +127,48 @@ def validate_inputs(images: List[ImageInput], mode: str,
 
         try:
             pil = load_pil(raw)
-        except Exception as e:
-            issues.append(ValidationIssue(
-                level=Severity.ERROR, code="undecodable",
-                message=f"Image {idx + 1} could not be decoded: {e}", image_index=idx))
-            report.accepted = False
-            metas.append(meta)
-            continue
+            width, height = pil.size
+        except Exception:
+            # multi-band uint16 GeoTIFFs are not PIL-decodable — probe with
+            # tifffile before rejecting a valid geospatial raster
+            pil, width, height = None, 0, 0
+            if fmt in ("tiff", "geotiff"):
+                try:
+                    import io as _io
+                    import tifffile as _tf
+                    with _tf.TiffFile(_io.BytesIO(raw)) as tif:
+                        s0 = tif.series[0]
+                        axes = s0.axes
+                        shape = list(s0.shape)
+                        if "S" in axes:
+                            hw = [d for i, d in enumerate(shape)
+                                  if axes[i] != "S"]
+                        else:
+                            hw = shape[-2:]
+                        height, width = int(hw[0]), int(hw[1])
+                except Exception:
+                    pass
+            if not width or not height:
+                issues.append(ValidationIssue(
+                    level=Severity.ERROR, code="undecodable",
+                    message=f"Image {idx + 1} could not be decoded.",
+                    image_index=idx))
+                report.accepted = False
+                metas.append(meta)
+                continue
 
-        meta.width, meta.height = pil.size
-        if pil.size[0] < config.MIN_IMAGE_DIM or pil.size[1] < config.MIN_IMAGE_DIM:
+        meta.width, meta.height = width, height
+        if width < config.MIN_IMAGE_DIM or height < config.MIN_IMAGE_DIM:
             issues.append(ValidationIssue(
                 level=Severity.ERROR, code="image-too-small",
-                message=f"Image {idx + 1} is {pil.size[0]}x{pil.size[1]} px — "
+                message=f"Image {idx + 1} is {width}x{height} px — "
                         f"minimum is {config.MIN_IMAGE_DIM}x{config.MIN_IMAGE_DIM}.",
                 image_index=idx))
             report.accepted = False
-        if pil.size[0] > config.MAX_IMAGE_DIM or pil.size[1] > config.MAX_IMAGE_DIM:
+        if width > config.MAX_IMAGE_DIM or height > config.MAX_IMAGE_DIM:
             issues.append(ValidationIssue(
                 level=Severity.WARNING, code="image-very-large",
-                message=f"Image {idx + 1} is {pil.size[0]}x{pil.size[1]} px — it will be "
+                message=f"Image {idx + 1} is {width}x{height} px — it will be "
                         f"downscaled to {config.VLM_MAX_SIDE}px for the VLM.",
                 image_index=idx))
 
@@ -160,7 +182,7 @@ def validate_inputs(images: List[ImageInput], mode: str,
             meta.ground_sample_dist_m = tmeta.get("ground_sample_dist_m")
             meta.crs_note = tmeta.get("crs_note")
             meta.extra_geo = {k: v for k, v in tmeta.items()
-                              if k in ("pixel_scale", "tiepoint")}  # type: ignore[attr-defined]
+                              if k in ("pixel_scale", "tiepoint", "epsg")}  # type: ignore[attr-defined]
             if fmt == "tiff":
                 issues.append(ValidationIssue(
                     level=Severity.INFO, code="plain-tiff",

@@ -70,11 +70,44 @@ BEN_19_CLASSES = [
     "Marine waters",
 ]
 
-# 43-class -> 19-class index map for legacy BigEarthNet v1 patch JSONs
+# OFFICIAL 43-class (v1) -> 19-class (v2/reBEN) index map.
+# Source: RSIM label_indices.json
+# (git.tu-berlin.de/rsim/BigEarthNet-S2_19-classes_models) — the same table
+# the bigearthnet_common package ships. v1 index order is the ORIGINAL
+# BigEarthNet ordering (see label_indices.json 'original_labels'); -1 marks
+# classes dropped by the 19-class nomenclature.
 BEN43_TO_BEN19 = [
-    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
-    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
-    15, 16, 17, 18,
+    0,   # 0  Continuous urban fabric        -> Urban fabric
+    0,   # 1  Discontinuous urban fabric     -> Urban fabric
+    1,   # 2  Industrial or commercial units
+    -1,  # 3  Road and rail networks         (dropped)
+    -1,  # 4  Port areas                     (dropped)
+    -1,  # 5  Airports                       (dropped)
+    -1,  # 6  Mineral extraction sites       (dropped)
+    -1,  # 7  Dump sites                     (dropped)
+    -1,  # 8  Construction sites             (dropped)
+    -1,  # 9  Green urban areas              (dropped)
+    -1,  # 10 Sport and leisure facilities   (dropped)
+    2, 2, 2,      # 11-13 arable land (non-irrigated / irrigated / rice)
+    3, 3, 3,     # 14-16 permanent crops (vineyards / fruit / olive)
+    4,           # 17 Pastures
+    3,           # 18 Annual crops assoc. w/ permanent crops -> Permanent crops
+    5,           # 19 Complex cultivation patterns
+    6,           # 20 Land principally occupied by agriculture...
+    7,           # 21 Agro-forestry areas
+    8, 9, 10,    # 22-24 broad-leaved / coniferous / mixed forest
+    11,          # 25 Natural grassland -> Nat. grassland & sparsely veg.
+    12, 12,      # 26-27 Moors+heathland / Sclerophyllous -> Moors,heath,scler.
+    13,          # 28 Transitional woodland/shrub
+    14,          # 29 Beaches, dunes, sands
+    -1,          # 30 Bare rock                    (dropped)
+    11,          # 31 Sparsely vegetated areas     -> Nat. grassland & sparse
+    -1,          # 32 Burnt areas                  (dropped)
+    15, 15,      # 33-34 Inland marshes / Peatbogs -> Inland wetlands
+    16, 16,      # 35-36 Salt marshes / Salines    -> Coastal wetlands
+    -1,          # 37 Intertidal flats             (dropped)
+    17, 17,      # 38-39 Water courses / bodies    -> Inland waters
+    18, 18, 18,  # 40-42 Coastal lagoons / Estuaries / Sea -> Marine waters
 ]
 
 
