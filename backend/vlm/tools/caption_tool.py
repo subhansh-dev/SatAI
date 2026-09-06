@@ -23,7 +23,7 @@ class CaptionTool(BaseTool):
     ps_requirement = "Single-image task: captioning / scene description"
 
     async def execute(self, query: str = "", images: list[str] = (),
-                      **params) -> Dict[str, Any]:
+                      model: str | None = None, **params) -> Dict[str, Any]:
         focus = query.strip() or "Describe this image."
         user = (
             f"Produce a remote-sensing scene description for the attached image.\n"
@@ -42,6 +42,6 @@ class CaptionTool(BaseTool):
             "End with `CONFIDENCE: <0-100>`."
         )
         text, conf, meta = await self.ask(SYSTEM, user, images[:1],
-                                          max_tokens=640)
+                                          max_tokens=640, model=model)
         return {"text": text, "confidence": conf, "model": meta["model"],
                 "metadata": {"self_reported": meta["self_reported_confidence"]}}

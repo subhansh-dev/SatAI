@@ -172,6 +172,20 @@ class ExecutionTrace(BaseModel):
     timestamps: Dict[str, str] = Field(default_factory=dict)
     total_execution_time_ms: float = 0.0
     notes: List[str] = Field(default_factory=list)
+    query: str = ""                                   # verbatim user query
+    image_preparation: List[Any] = Field(default_factory=list)  # normalisation notes
+
+
+class FeedbackEntry(BaseModel):
+    rating: str = Field(pattern="^(up|down)$")
+    comment: str = ""
+    timestamp: str = ""
+
+
+class FeedbackRequest(BaseModel):
+    query_id: str
+    rating: str = Field(pattern="^(up|down)$")
+    comment: str = Field(default="", max_length=500)
 
 
 class VLMResponse(BaseModel):
@@ -186,6 +200,8 @@ class VLMResponse(BaseModel):
     trace: Optional[ExecutionTrace] = None
     report_url: Optional[str] = None
     execution_time_ms: float = 0.0
+    audit_hash: Optional[str] = None             # SHA-256 integrity digest
+    feedback: List[Dict[str, Any]] = Field(default_factory=list)  # analyst reviews
 
 
 class VLMStatus(BaseModel):

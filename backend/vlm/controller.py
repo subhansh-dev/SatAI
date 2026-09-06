@@ -12,6 +12,8 @@ Implements the PS-mandated orchestration loop:
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import logging
 import re
 import time
@@ -350,11 +352,31 @@ class Controller:
             report_url=f"/vlm/report/{trace.query_id}",
             execution_time_ms=total_ms,
         )
+        # verbatim query + normalisation notes travel INSIDE the trace so the
+        # API response, the in-memory store and the downloadable report carry
+        # byte-identical audit content
+        resp.trace.query = query
+        resp.trace.image_preparation = prepare_notes
         payload = resp.model_dump()
-        payload["trace"]["query"] = query          # keep query text for history
-        payload["trace"]["image_preparation"] = prepare_notes
+        payload["audit_hash"] = self._audit_hash(payload)
+        resp.audit_hash = payload["audit_hash"]
         self.store.put(payload)
         return resp
+
+    @staticmethod
+    def _audit_hash(payload: Dict[str, Any]) -> str:
+        """
+        Tamper-evident integrity digest (transparency feature).
+        SHA-256 over the canonical JSON of the full response, excluding the
+        audit_hash field itself and analyst feedback (which is appended AFTER
+        the machine answer is frozen). Verifiers recompute the digest over the
+        report JSON minus `audit_hash`/`feedback` and compare.
+        """
+        body = {k: v for k, v in payload.items()
+                if k not in ("audit_hash", "feedback")}
+        canonical = json.dumps(body, sort_keys=True, separators=(",", ":"),
+                               default=str)
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
     # ------------------------------------------------------------ classify
     async def classify(self, query: str, validation: ValidationReport,
@@ -763,8 +785,10 @@ class Controller:
             validation=validation, trace=trace,
             report_url=f"/vlm/report/{trace.query_id}",
             execution_time_ms=total_ms)
+        resp.trace.query = query
         payload = resp.model_dump()
-        payload["trace"]["query"] = query
+        payload["audit_hash"] = self._audit_hash(payload)
+        resp.audit_hash = payload["audit_hash"]
         self.store.put(payload)
         return resp
 

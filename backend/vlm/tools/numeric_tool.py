@@ -35,7 +35,7 @@ class NumericTool(BaseTool):
 
     async def execute(self, query: str, images: list[str],
                       metadata: dict | None = None,
-                      **params) -> Dict[str, Any]:
+                      model: str | None = None, **params) -> Dict[str, Any]:
         n_samples = max(1, int(getattr(config, "SELF_CONSISTENCY_SAMPLES", 3)))
         user = (
             f"Quantitative remote-sensing question: {query}\n\n"
@@ -51,7 +51,8 @@ class NumericTool(BaseTool):
         results = []
         for t in temps[:n_samples]:
             text, conf, meta = await self.ask(SYSTEM, user, images[:1],
-                                              max_tokens=384, temperature=t)
+                                              max_tokens=384, temperature=t,
+                                              model=model)
             results.append((self._extract_answer(text), text, conf, meta))
         answers = [r[0] for r in results if r[0] is not None]
         if not answers:

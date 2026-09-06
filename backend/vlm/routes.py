@@ -1,12 +1,14 @@
 """
 SatAI — VLM API Routes
-Agentic endpoints + direct-tool endpoints + samples + history + reports.
+Agentic endpoints + direct-tool endpoints + samples + history + reports
++ analyst feedback (human-in-the-loop audit trail).
 """
 from __future__ import annotations
 
 import asyncio
 import base64
 import logging
+import time
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, UploadFile, File
@@ -16,8 +18,8 @@ from .controller import Controller, get_controller
 from .input_validator import validate_inputs
 from .report import render_html_report, render_json_report
 from .schemas import (
-    CaptionRequest, ChangeRequest, GroundRequest, SARFusionRequest,
-    VLMQuery, VLMStatus,
+    CaptionRequest, ChangeRequest, FeedbackRequest, GroundRequest,
+    SARFusionRequest, VLMQuery, VLMStatus,
 )
 from .image_utils import decode_b64, sniff_format, load_pil, detect_modality
 
@@ -199,6 +201,36 @@ async def list_samples() -> dict:
 async def history() -> dict:
     ctrl = await get_controller()
     return {"queries": ctrl.store.list()}
+
+
+# ---------------------------------------------------------------------------
+# Analyst feedback (human-in-the-loop transparency)
+# ---------------------------------------------------------------------------
+@router.post("/feedback")
+async def feedback(req: FeedbackRequest) -> dict:
+    """
+    Record an analyst review (👍 / 👎 + optional note) against a stored query.
+    Feedback is appended to the audit record AFTER the machine answer is
+    frozen — it never mutates the answer or the audit_hash, so the integrity
+    digest stays verifiable while the human review trail still accumulates.
+    """
+    ctrl = await get_controller()
+    stored = ctrl.store.get(req.query_id)
+    if stored is None:
+        raise HTTPException(404, "Query not found (store is in-memory and "
+                                 "capped — feedback must target a recent query)")
+    feedback_list = stored.setdefault("feedback", [])
+    entry = {
+        "rating": req.rating,
+        "comment": (req.comment or "").strip(),
+        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+    feedback_list.append(entry)
+    ups = sum(1 for f in feedback_list if f["rating"] == "up")
+    stored["feedback_summary"] = {"up": ups, "down": len(feedback_list) - ups}
+    return {"ok": True, "query_id": req.query_id,
+            "feedback_count": len(feedback_list),
+            "feedback_summary": stored["feedback_summary"]}
 
 
 @router.get("/report/{query_id}")

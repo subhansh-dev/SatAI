@@ -8,7 +8,8 @@ SatAI is not a thin VLM wrapper. Every query runs through an **agentic
 controller** that validates the input imagery, classifies the request, selects
 specialist tools from a predefined registry, executes them with permitted
 parameters only, and merges text + spatial output into an auditable answer with
-visual evidence, confidence and a downloadable report.
+visual evidence, confidence and a downloadable report — stamped with an
+SHA-256 integrity digest and open to human analyst review.
 
 ---
 
@@ -30,6 +31,33 @@ visual evidence, confidence and a downloadable report.
 Inputs: single optical/multispectral/SAR image · registered optical+SAR pair ·
 bi-temporal pair. **GeoTIFF/TIFF are first-class** (georeference is carried into
 the GeoJSON output); PNG/JPEG accepted for public benchmark data.
+
+### What's new (Sept 2026 — transparency & experience pass)
+
+- **Chain of evidence** — every answer ships with numbered, inspectable
+  evidence (EV-1, EV-2, …); the UI manifest links claims to exhibits, reports
+  carry the same EV prefixes, and grounding answers expose a machine-readable
+  box table (label · confidence · bbox).
+- **Tamper-evident audit records** — every response is stamped with an
+  **SHA-256 integrity digest** over its canonical JSON; anyone can recompute it
+  from the downloaded JSON report to prove the record was not altered.
+- **Human-in-the-loop review** — 👍/👎 analyst feedback (with optional note) is
+  recorded against the audit record via `POST /vlm/feedback`, tallied, and
+  printed in the downloadable report — without ever mutating the frozen answer
+  or its digest.
+- **Deeper trace UX** — the execution drawer now shows pipeline stage chips,
+  an **execution waterfall** (per-tool latency bars), the verbatim query,
+  image-preparation notes and the integrity hash with copy button.
+- **Dark mode** — a full mission-control night theme (topbar toggle,
+  `prefers-color-scheme` aware, persisted, no first-paint flash).
+- **Tactile institutional UI** — the government-portal aesthetic gained a
+  skeuomorphic/neumorphic layer: film-grain paper, letterpress serif,
+  stamped ISRO crest seal, extruded panels, etched input wells.
+- **Model-hint passthrough repaired** — every specialist tool now honours the
+  registry's model selection (previously only VQA/change did); the grounding
+  tool distinguishes *honest empty results* from *parse failures* in its
+  confidence; SAR spread statistics are honestly labelled as
+  log-compressed-amplitude descriptors.
 
 ### What's new (Sept 2026 hardening + upgrade pass)
 
@@ -154,8 +182,28 @@ python -m backend.vlm.eval.eval_cdvqa                    # change-VQA accuracy
 
 ```bash
 pip install pytest pytest-asyncio
-python -m pytest tests/          # 28 tests — full agentic loop on a mock VLM
+python -m pytest tests/          # 64 tests — full agentic loop on a mock VLM
 ```
+
+Covers the orchestration loop, validation, tools, GeoTIFF handling, spectral
+band-math, the transparency layer (audit digest, feedback, reports) and the
+HTTP API — all offline via a deterministic mock VLM.
+
+## 📚 Deep documentation
+
+Every feature — what it is, why it exists (PS mapping), how it works at code
+level, what it connects to — is documented in [`docs/`](docs/README.md):
+
+| | | |
+|---|---|---|
+| [01 Architecture](docs/01-system-architecture.md) | [02 Agentic controller](docs/02-agentic-controller.md) | [03 Tool & model registry](docs/03-tool-registry.md) |
+| [04 VQA + numeric](docs/04-tool-vqa-numeric.md) | [05 Captioning](docs/05-tool-caption.md) | [06 Grounding](docs/06-tool-grounding.md) |
+| [07 Change detection](docs/07-tool-change-detection.md) | [08 SAR fusion](docs/08-tool-sar-fusion.md) | [09 Spectral indices](docs/09-tool-spectral-indices.md) |
+| [10 Visual evidence](docs/10-visual-evidence.md) | [11 GeoJSON & georeferencing](docs/11-geojson-georeferencing.md) | [12 Input validation](docs/12-input-validation.md) |
+| [13 Image processing](docs/13-image-processing.md) | [14 VLM client](docs/14-vlm-client.md) | [15 LoRA fine-tuning](docs/15-lora-finetuning.md) |
+| [16 Eval harness](docs/16-eval-harness.md) | [17 Transparency & audit](docs/17-transparency-auditability.md) | [18 Frontend & UI](docs/18-frontend-ui.md) |
+| [19 API reference](docs/19-api-reference.md) | [20 Configuration](docs/20-configuration.md) | [21 Testing](docs/21-testing.md) |
+| [22 Deployment](docs/22-deployment.md) | | |
 
 ## 🔌 API
 
@@ -165,6 +213,7 @@ python -m pytest tests/          # 28 tests — full agentic loop on a mock VLM
 | `POST /vlm/caption` `/vlm/ground` `/vlm/change` `/vlm/sar-fusion` | direct specialist-tool endpoints |
 | `POST /vlm/upload` | image probe: format, dims, bands, modality, GeoTIFF metadata |
 | `POST /vlm/validate` | dry-run of the compatibility checker |
+| `POST /vlm/feedback` | analyst review (👍/👎 + note) appended to the audit record |
 | `GET /vlm/status` · `/vlm/history` · `/vlm/report/{id}` | status, audit history, HTML/JSON reports |
 | `GET /api/health` | liveness + VLM readiness |
 
@@ -182,11 +231,12 @@ backend/
     vlm_client.py        cloud (OpenRouter) ⇄ local (vLLM) client
     visual_evidence.py   annotated boxes, change map, side-by-side renders
     report.py            auditable HTML/JSON reports
-    tools/               vqa · numeric · caption · ground · change · sar_fusion
+    tools/               vqa · numeric · caption · ground · change · sar_fusion · spectral_index
     eval/                VRSBench / RSVQA / CDVQA harnesses + metrics
-frontend/                vanilla-JS SPA (chat, evidence gallery, trace drawer)
+frontend/                vanilla-JS SPA (chat, evidence gallery, trace drawer, dark mode)
+docs/                    22 deep-dive engineering documents (see table above)
 scripts/                 dataset downloader + multimodal LoRA trainer
-tests/                   28-test suite (mock VLM, no network needed)
+tests/                   64-test suite (mock VLM, no network needed)
 ```
 
 ## 🔒 Security notes

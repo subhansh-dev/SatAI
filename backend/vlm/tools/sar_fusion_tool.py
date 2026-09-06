@@ -31,7 +31,7 @@ class SARFusionTool(BaseTool):
 
     async def execute(self, query: str, images: list[str],
                       metadata: dict | None = None,
-                      **params) -> Dict[str, Any]:
+                      model: str | None = None, **params) -> Dict[str, Any]:
         md = metadata or {}
         stats = md.get("sar_stats") or {}
         stat_block = ""
@@ -59,7 +59,7 @@ class SARFusionTool(BaseTool):
             "End with `CONFIDENCE: <0-100>`."
         )
         text, conf, meta = await self.ask(SYSTEM, user, images[:2],
-                                          max_tokens=768)
+                                          max_tokens=768, model=model)
         return {"text": text, "confidence": conf, "model": meta["model"],
                 "metadata": {"self_reported": meta["self_reported_confidence"],
                              "sar_stats": stats or None}}

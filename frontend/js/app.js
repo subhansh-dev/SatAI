@@ -6,6 +6,7 @@
  *   GET  /vlm/status            backend + registry info
  *   POST /vlm/upload            image -> base64 + modality/format probe
  *   POST /vlm/query             full agentic pipeline
+ *   POST /vlm/feedback          analyst review (👍/👎 + note) -> audit record
  *   GET  /vlm/history           recent queries (in-memory store)
  *   GET  /vlm/report/:id?format=json|html   auditable report
  *   GET  /vlm/report/:id/download           attachment
@@ -36,6 +37,8 @@ document.addEventListener('DOMContentLoaded', () => {
   attachUploadHandlers();
   attachComposerHandlers();
   attachChromeHandlers();
+  attachThemeToggle();
+  attachEvidenceNavigation();
   refreshStatus();
   refreshHistory();
   setInterval(refreshStatus, 60000);
@@ -232,32 +235,48 @@ function addAIMsg(data, clientMs) {
   const conf = Math.round((data.confidence || 0) * 100);
   const val = data.validation || {};
   const issues = val.issues || [];
+  const trace = data.trace || {};
 
   const valPills = `
     <span class="v-pill ${rejected ? 'err' : 'ok'}">${rejected ? 'INPUT REJECTED' : 'INPUTS ACCEPTED'}</span>
     ${issues.filter(i => i.level !== 'error').map(i => `<span class="v-pill ${i.level === 'error' ? 'err' : i.level}">${esc(i.code)}</span>`).join('')}
     ${(val.images || []).map(im => `<span class="v-pill">${esc(im.format || '?')} · ${im.width}×${im.height} · ${esc(im.detected_modality)}</span>`).join('')}`;
 
+  const manifestHtml = renderManifest(data.visual_evidence || []);
   const evidenceHtml = renderEvidence(data.visual_evidence || []);
   const geoHtml = renderGeoJSON(data.geojson);
 
+  // provenance: which model produced this answer and how it is served
+  const provBits = [];
+  if (trace.model) provBits.push(shortModel(trace.model));
+  if (trace.vlm_mode) provBits.push(esc(trace.vlm_mode));
+  const prov = provBits.length
+    ? `<span class="prov-chip" title="Model provenance — the model and serving mode that produced this answer (see execution trace for the full model-registry decision)">${provBits.join(' · ')}</span>` : '';
+
   chat.insertAdjacentHTML('beforeend', `
-    <div class="msg msg-ai">
+    <div class="msg msg-ai" data-qid="${esc(data.query_id)}">
       <div class="avatar">AI</div>
       <div class="bubble">
         <div class="val-banner">${valPills}</div>
         <div class="m-text">${liteMd(data.response || '(no content)')}</div>
+        ${manifestHtml}
         ${evidenceHtml}
         ${geoHtml}
         <div class="msg-meta">
           ${!rejected ? `
-          <span class="conf"><span class="conf-bar"><i style="width:${conf}%"></i></span>${conf}% confidence</span>` : ''}
+          <span class="conf" title="${esc(confTooltip(data))}"><span class="conf-bar"><i style="width:${conf}%"></i></span>${conf}% confidence</span>` : ''}
+          ${prov}
           <span class="v-pill">${esc(data.task_type || '—')}</span>
           <span>${(data.execution_time_ms || 0).toFixed(0)} ms</span>
           <button class="meta-link" onclick="openTrace('${data.query_id}')">execution trace</button>
           <button class="meta-link" onclick="openReport('${data.query_id}','html')">report</button>
           <button class="meta-link" onclick="downloadReport('${data.query_id}','html')">↓ html</button>
           <button class="meta-link" onclick="downloadReport('${data.query_id}','json')">↓ json</button>
+          ${!rejected ? `
+          <span class="fb-group" role="group" aria-label="Rate this answer">
+            <button class="fb-btn fb-up" title="Correct / useful — record a positive analyst review" onclick="sendFeedback('${data.query_id}','up',this)">👍</button>
+            <button class="fb-btn fb-down" title="Flag for review — record a negative analyst review" onclick="sendFeedback('${data.query_id}','down',this)">👎</button>
+          </span>` : ''}
         </div>
       </div>
     </div>`);
@@ -265,14 +284,138 @@ function addAIMsg(data, clientMs) {
   void clientMs;
 }
 
+/* ---------------- chain of evidence (transparency) ---------------- */
+const EV_KIND_LABEL = {
+  annotated_boxes: 'grounding',
+  change_map: 'change map',
+  side_by_side: 'comparison',
+  index_map: 'spectral index',
+  input_view: 'input'
+};
+
+function renderManifest(items) {
+  if (!items.length) return '';
+  const chips = items.map((ev, i) => `
+    <button class="ev-chip" data-ev="${i + 1}" type="button"
+            title="Jump to ${esc(ev.title)}">
+      <span class="ev-chip-id">EV-${i + 1}</span>${esc(EV_KIND_LABEL[ev.kind] || 'evidence')}
+    </button>`).join('');
+  return `<div class="ev-manifest">
+    <span class="ev-manifest-label" title="Every claim is backed by numbered, inspectable visual evidence (chain-of-evidence)">Chain of evidence</span>${chips}
+  </div>`;
+}
+
 function renderEvidence(items) {
   if (!items.length) return '';
-  const cards = items.map(ev => `
-    <figure class="ev-card" onclick="lightbox('${ev.image_base64 ? 'data:' + (ev.mime_type || 'image/jpeg') + ';base64,' + ev.image_base64 : ''}')">
-      <img src="data:${ev.mime_type || 'image/jpeg'};base64,${ev.image_base64}" alt="${esc(ev.title)}" loading="lazy">
+  const cards = items.map((ev, i) => {
+    const kind = esc(EV_KIND_LABEL[ev.kind] || (ev.kind || 'evidence'));
+    return `
+    <figure class="ev-card" data-ev="${i + 1}">
+      <div class="ev-imgwrap" onclick="lightbox('data:${ev.mime_type || 'image/jpeg'};base64,${ev.image_base64}')">
+        <img src="data:${ev.mime_type || 'image/jpeg'};base64,${ev.image_base64}" alt="${esc(ev.title)}" loading="lazy">
+        <span class="ev-kind ev-kind-${esc(ev.kind || 'input_view')}">${kind} · EV-${i + 1}</span>
+      </div>
       <figcaption class="ev-cap"><b>${esc(ev.title)}</b>${esc(ev.description || '')}</figcaption>
-    </figure>`).join('');
+      ${renderEvStats(ev)}
+    </figure>`;
+  }).join('');
   return `<div class="evidence">${cards}</div>`;
+}
+
+function renderEvStats(ev) {
+  const s = ev.stats || {};
+  if (ev.kind === 'change_map') {
+    const sig = /significant/.test(String(s.verdict || ''));
+    return `
+      <div class="ev-stats">
+        ${s.changed_pixels_pct != null ? `<span class="stat"><b>${esc(String(s.changed_pixels_pct))}%</b> pixels changed</span>` : ''}
+        ${(s.regions || []).length ? `<span class="stat"><b>${s.regions.length}</b> dominant region(s)</span>` : ''}
+        ${s.verdict ? `<span class="stat stat-verdict ${sig ? 'is-sig' : 'is-quiet'}" title="Heuristic verdict — computed without reference masks">${esc(String(s.verdict))}</span>` : ''}
+        ${s.method ? `<span class="stat stat-method" title="${esc(String(s.method))} — heuristic estimate without reference masks">method ⓘ</span>` : ''}
+      </div>`;
+  }
+  if (ev.kind === 'annotated_boxes' && Array.isArray(s.boxes) && s.boxes.length) {
+    const rows = s.boxes.map((b, i) => `
+      <tr>
+        <td>#${i + 1}</td>
+        <td>${esc(b.label)}</td>
+        <td><span class="conf-bar"><i style="width:${Math.round((b.confidence || 0) * 100)}%"></i></span></td>
+        <td class="num">${Math.round((b.confidence || 0) * 100)}%</td>
+        <td class="num">[${(b.bbox || []).map(v => Math.round(v)).join(', ')}]</td>
+      </tr>`).join('');
+    return `
+      <details class="box-table">
+        <summary>Grounded box data (${s.boxes.length}) — machine-readable</summary>
+        <table>
+          <thead><tr><th>#</th><th>Label</th><th></th><th>Conf</th><th>bbox 0–1000</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </details>`;
+  }
+  if (ev.kind === 'index_map' && s && typeof s === 'object') {
+    const bits = [];
+    if (s.index) bits.push(`<span class="stat"><b>${esc(String(s.index).toUpperCase())}</b></span>`);
+    if (s.mean != null) bits.push(`<span class="stat">mean <b>${esc(Number(s.mean).toFixed(3))}</b></span>`);
+    if (s.median != null) bits.push(`<span class="stat">median <b>${esc(Number(s.median).toFixed(3))}</b></span>`);
+    if (s.p05 != null && s.p95 != null)
+      bits.push(`<span class="stat">5–95% <b>${esc(Number(s.p05).toFixed(2))} … ${esc(Number(s.p95).toFixed(2))}</b></span>`);
+    const tf = s.threshold_fraction || {};
+    if (tf.fraction != null || tf.pct != null)
+      bits.push(`<span class="stat"><b>${esc(String(tf.fraction ?? tf.pct))}</b> above threshold</span>`);
+    return bits.length ? `<div class="ev-stats">${bits.join('')}</div>` : '';
+  }
+  return '';
+}
+
+function confTooltip(data) {
+  const outs = (data.trace?.tool_outputs || []);
+  const sources = [...new Set(outs.map(o => o.confidence_source).filter(Boolean))];
+  const perTool = outs.map(o => `${o.tool_id} ${Math.round((o.confidence || 0) * 100)}%`);
+  return 'Overall confidence = weighted mean of specialist-tool confidences'
+    + (sources.length ? ' · sources: ' + sources.join(', ') : '')
+    + (perTool.length ? ' · ' + perTool.join(', ') : '');
+}
+
+function shortModel(m) {
+  return esc(String(m).split('/').pop().slice(0, 34));
+}
+
+async function sendFeedback(qid, rating, btn) {
+  let comment = '';
+  if (rating === 'down') {
+    comment = prompt('What went wrong? (optional note, recorded in the audit report)') || '';
+  }
+  try {
+    const r = await fetch(`${API}/vlm/feedback`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query_id: qid, rating, comment })
+    });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || `HTTP ${r.status}`);
+    const d = await r.json();
+    const group = btn.closest('.fb-group');
+    if (group) {
+      group.querySelectorAll('.fb-btn').forEach(b => { b.disabled = true; });
+      btn.classList.add('active');
+    }
+    toast(`Analyst review recorded (${d.feedback_summary.up}👍 / ${d.feedback_summary.down}👎) — included in the audit report`);
+  } catch (e) {
+    toast(`Feedback failed: ${e.message}`);
+  }
+}
+
+function attachEvidenceNavigation() {
+  // chain-of-evidence chips: jump from the answer text to the evidence card
+  chat.addEventListener('click', e => {
+    const chip = e.target.closest('.ev-chip');
+    if (!chip) return;
+    const msg = chip.closest('.msg-ai');
+    const card = msg?.querySelector(`.ev-card[data-ev="${chip.dataset.ev}"]`);
+    if (!card) return;
+    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    card.classList.add('flash');
+    setTimeout(() => card.classList.remove('flash'), 1800);
+  });
 }
 
 function renderGeoJSON(gj) {
@@ -318,7 +461,57 @@ function openTrace(qid) {
   $('traceQid').textContent = '· ' + (t.query_id || '').slice(0, 8);
 
   const kv = (k, v) => `<div class="k">${esc(k)}</div><div class="v">${esc(String(v ?? '—'))}</div>`;
+
+  // waterfall: per-tool share of the total wall-clock time
+  const total = Math.max(t.total_execution_time_ms || 0, 1);
+  const waterfall = (t.tool_outputs || []).map(o => {
+    const pct = Math.max(2, Math.min(100, ((o.execution_time_ms || 0) / total) * 100));
+    return `
+      <div class="wf-row">
+        <span class="wf-tool">${esc(o.tool_id)}</span>
+        <span class="wf-track"><i style="width:${pct}%"></i></span>
+        <span class="wf-ms">${(o.execution_time_ms || 0).toFixed(0)} ms · conf ${(o.confidence ?? 0).toFixed(2)}</span>
+      </div>`;
+  }).join('');
+
+  // pipeline stage chips from the recorded timestamps
+  const stageOrder = ['received', 'classified', 'tools_done'];
+  const stages = stageOrder.filter(k => t.timestamps?.[k]);
+  const stageHtml = stages.length ? `
+    <div class="stage-row">
+      ${stages.map((k, i) => `
+        <span class="stage-chip"><b>${esc(k)}</b><time>${esc(t.timestamps[k])}</time></span>
+        ${i < stages.length - 1 ? '<span class="stage-arrow">→</span>' : ''}`).join('')}
+    </div>` : '';
+
+  // integrity digest (transparency)
+  const hash = data.audit_hash || '';
+  const hashHtml = hash ? `
+    <div class="tr-section">
+      <p class="tr-title">Integrity</p>
+      <div class="hash-row">
+        <code>${esc(hash)}</code>
+        <button class="meta-link" onclick="copyText('${esc(hash)}')">copy</button>
+      </div>
+      <div class="tr-note">SHA-256 over the canonical JSON of this response — recompute it over the downloaded JSON report (minus audit_hash/feedback) to prove the record was not altered.</div>
+    </div>` : '';
+
+  const prep = (t.image_preparation || []).map(p =>
+    Object.entries(p || {}).filter(([, v]) => v !== null && v !== false && v !== '')
+      .map(([k, v]) => `${k}=${v}`).join(' · ')).filter(Boolean);
+
   $('traceBody').innerHTML = `
+    <div class="tr-section">
+      <p class="tr-title">Query</p>
+      <div class="tr-query">${esc(t.query || '(not recorded)')}</div>
+    </div>
+    <div class="tr-section">
+      <p class="tr-title">Pipeline stages</p>
+      ${stageHtml || '<div class="tr-note">No timestamps recorded.</div>'}
+      <div class="tr-kv" style="margin-top:8px">
+        ${kv('Total time', `${(t.total_execution_time_ms || 0).toFixed(0)} ms`)}
+      </div>
+    </div>
     <div class="tr-section">
       <p class="tr-title">Decision</p>
       <div class="tr-kv">
@@ -334,8 +527,8 @@ function openTrace(qid) {
       <div class="tr-kv">
         ${kv('Selected', (t.tools_selected || []).join(', '))}
         ${kv('Invoked', (t.tools_invoked || []).join(', '))}
-        ${kv('Total time', `${(t.total_execution_time_ms || 0).toFixed(0)} ms`)}
       </div>
+      ${waterfall ? `<p class="tr-title" style="margin-top:12px">Execution waterfall</p>${waterfall}` : ''}
     </div>
     ${(t.tool_outputs || []).map(o => `
       <div class="tr-section">
@@ -358,11 +551,17 @@ function openTrace(qid) {
       </ul>
       ${val.pair_compatibility ? `<div class="tr-note">pair: ${esc(val.pair_compatibility)}</div>` : ''}
     </div>
+    ${prep.length ? `
+    <div class="tr-section">
+      <p class="tr-title">Image preparation</p>
+      ${prep.map(p => `<div class="tr-note">• ${esc(p)}</div>`).join('')}
+    </div>` : ''}
     ${(t.notes || []).length ? `
     <div class="tr-section">
       <p class="tr-title">Notes</p>
       ${(t.notes || []).map(n => `<div class="tr-note">• ${esc(n)}</div>`).join('')}
     </div>` : ''}
+    ${hashHtml}
     <div class="tr-section">
       <p class="tr-title">Timeline</p>
       <div class="tr-kv">${Object.entries(t.timestamps || {}).map(([k, v]) => kv(k, v)).join('')}</div>
@@ -436,7 +635,8 @@ async function reopenQuery(qid) {
       geojson: full.geojson || null,
       validation: full.validation || null,
       execution_time_ms: full.execution_time_ms || full.trace?.total_execution_time_ms || 0,
-      trace: full.trace || null
+      trace: full.trace || null,
+      audit_hash: full.audit_hash || null
     };
     state.responses.set(qid, resp);
     addAIMsg(resp, 0);
@@ -463,6 +663,17 @@ function attachChromeHandlers() {
   const sbPref = localStorage.getItem('satai_sidebar');
   const narrow = window.matchMedia('(max-width: 900px)').matches;
   if (sbPref === '0' || (sbPref !== '1' && narrow)) $('sidebar').classList.add('collapsed');
+}
+
+/* ================================================================ THEME */
+function attachThemeToggle() {
+  $('themeBtn').addEventListener('click', () => {
+    const root = document.documentElement;
+    const dark = root.classList.toggle('dark');
+    localStorage.setItem('satai_theme', dark ? 'dark' : 'light');
+    toast(dark ? 'Dark theme — mission-control night mode'
+               : 'Light theme — daylight mode');
+  });
 }
 
 function lightbox(src) {

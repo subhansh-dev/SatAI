@@ -81,6 +81,32 @@ def _sanitize(items: List[Any]) -> List[Dict[str, Any]]:
     return boxes[:12]        # sanity cap
 
 
+def _parsed_cleanly(raw: str) -> bool:
+    """
+    True when the model emitted a parseable JSON array — possibly empty.
+    Distinguishes an honest "object absent" result (parsed, 0 boxes) from a
+    parse failure (prose / malformed output): the two must not receive the
+    same dinged confidence.
+    """
+    candidates: List[str] = [raw.strip()]
+    fence = _FENCE_RE.search(raw)
+    if fence:
+        candidates.insert(0, fence.group(1))
+    arr = _ARRAY_RE.search(raw)
+    if arr:
+        candidates.insert(0, arr.group(0))
+    for cand in candidates:
+        try:
+            data = json.loads(cand)
+        except Exception:
+            continue
+        if isinstance(data, dict):
+            data = data.get("boxes") or data.get("regions") or []
+        if isinstance(data, list):
+            return True
+    return False
+
+
 class GroundTool(BaseTool):
     tool_id = "ground"
     description = ("Text-guided region grounding: highlights referred regions "
@@ -91,7 +117,9 @@ class GroundTool(BaseTool):
     ps_requirement = "Single-image task: text-guided region grounding"
 
     async def execute(self, query: str, images: list[str],
-                      output_format: str = "hbb", **params) -> Dict[str, Any]:
+                      metadata: dict | None = None,
+                      output_format: str = "hbb",
+                      model: str | None = None, **params) -> Dict[str, Any]:
         obb = output_format == "obb"
         user = (
             f"Referring expression: \"{query}\"\n"
@@ -101,16 +129,17 @@ class GroundTool(BaseTool):
             " Reply with the JSON array only."
         )
         text, model_conf, meta = await self.ask(SYSTEM, user, images[:1],
-                                                max_tokens=512, temperature=0.0)
+                                                max_tokens=512, temperature=0.0,
+                                                model=model)
         boxes = parse_boxes(text)
-        parse_ok = bool(boxes)
+        parsed_cleanly = _parsed_cleanly(text)
         self_reported = bool(meta.get("self_reported_confidence"))
-        if not boxes and text:
-            # model answered prose but found nothing concrete — keep honest
-            boxes = []
         conf = (sum(b["confidence"] for b in boxes) / len(boxes)) if boxes else 0.0
         if not boxes:
-            conf = 0.35 if parse_ok is False else 0.5
+            # honest-empty (model answered with a valid empty array) is more
+            # trustworthy than output we could not parse at all — the old code
+            # collapsed both into the same 0.35 (the 0.5 arm was dead)
+            conf = 0.5 if parsed_cleanly else 0.35
         # grounding trust = box confidences, dinged when the model never used
         # the confidence protocol (the old code multiplied by 0.6 on every
         # answer because the prompt banned the CONFIDENCE line entirely)
@@ -125,5 +154,6 @@ class GroundTool(BaseTool):
             "model": meta["model"],
             "metadata": {"output_format": output_format,
                          "self_reported": self_reported,
+                         "parsed_cleanly": parsed_cleanly,
                          "raw_model_output": text[:500] if not boxes else None},
         }

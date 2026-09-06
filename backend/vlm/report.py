@@ -64,6 +64,7 @@ def render_html_report(response: Dict[str, Any]) -> str:
     vlm_mode = esc(str(trace.get("vlm_mode") or "—"))
     ts = esc(str((trace.get("timestamps") or {}).get("received", "—")))
     total_ms = trace.get("total_execution_time_ms") or r.get("execution_time_ms")
+    audit_hash = esc(str(r.get("audit_hash") or ""))
 
     html_parts: List[str] = [
         "<!doctype html><html><head><meta charset='utf-8'>",
@@ -74,6 +75,15 @@ def render_html_report(response: Dict[str, Any]) -> str:
         "Remote Sensing — Analysis Report</div></div>",
         f"<div class='badge'>PS ID: SIH26167 · ISRO<br>Query ID: {esc(str(r.get('query_id','')))[:18]}…<br>"
         f"Status: {esc(str(r.get('status','ok')).upper())}</div></div>",
+
+        ("<div class='card' style='margin-bottom:14px;padding:10px 18px'>"
+         f"<span style='font-size:11px;color:#5a6478;letter-spacing:1px'>"
+         f"INTEGRITY DIGEST (SHA-256)</span><br>"
+         f"<code style='font-size:12px;overflow-wrap:anywhere'>{audit_hash}</code>"
+         f"<span style='font-size:11.5px;color:#5a6478'> — tamper-evident digest over "
+         f"the canonical JSON of this record (excluding audit_hash and feedback). "
+         f"Recompute to verify the report has not been altered.</span></div>")
+        if audit_hash else "",
 
         "<h2>Query</h2><div class='card'><div class='query'>",
         esc(str(trace.get("query") or "")),
@@ -153,12 +163,22 @@ def render_html_report(response: Dict[str, Any]) -> str:
     # ---------- visual evidence ----------
     ev = r.get("visual_evidence") or []
     if ev:
-        cards = "".join(
-            f"<div class='evc'><img src='data:{esc(str(e.get('mime_type','image/png')))};"
-            f"base64,{e.get('image_base64','')}'>"
-            f"<div class='cap'><b>{esc(str(e.get('title','')))}</b><br>"
-            f"{esc(str(e.get('description') or ''))}</div></div>"
-            for e in ev)
+        cards = ""
+        for idx, e in enumerate(ev, 1):
+            stats = e.get("stats") or {}
+            stat_bits = []
+            if stats.get("changed_pixels_pct") is not None:
+                stat_bits.append(f"{stats['changed_pixels_pct']}% pixels changed")
+            if stats.get("verdict"):
+                stat_bits.append(esc(str(stats["verdict"])))
+            if stats.get("boxes"):
+                stat_bits.append(f"{len(stats['boxes'])} box(es)")
+            stat_html = ("<div style='font-size:11px;color:#7a8496;margin-top:4px'>"
+                         + " · ".join(stat_bits) + "</div>") if stat_bits else ""
+            cards += (f"<div class='evc'><img src='data:{esc(str(e.get('mime_type','image/png')))};"
+                      f"base64,{e.get('image_base64','')}'>"
+                      f"<div class='cap'><b>EV-{idx} · {esc(str(e.get('title','')))}</b><br>"
+                      f"{esc(str(e.get('description') or ''))}{stat_html}</div></div>")
         html_parts.append(f"<h2>Visual Evidence</h2><div class='grid'>{cards}</div>")
 
     # ---------- geojson ----------
@@ -170,6 +190,23 @@ def render_html_report(response: Dict[str, Any]) -> str:
             f"<p style='font-size:12px;color:#5a6478'>CRS: {esc(str(gj.get('crs','')))}</p>",
             f"<pre style='font-size:11px;overflow:auto;background:#f6f8fc;"
             f"padding:12px;border-radius:8px'>{esc(gj_text)}</pre></div>",
+        ]
+
+    # ---------- analyst feedback (human-in-the-loop) ----------
+    fb = r.get("feedback") or []
+    if fb:
+        fb_rows = "".join(
+            f"<tr><td>{'👍' if f.get('rating') == 'up' else '👎'}</td>"
+            f"<td>{esc(str(f.get('comment') or '—'))}</td>"
+            f"<td>{esc(str(f.get('timestamp') or ''))}</td></tr>"
+            for f in fb)
+        html_parts += [
+            "<h2>Analyst Review (Human-in-the-Loop)</h2><div class='card'>",
+            "<table><tr><th>Verdict</th><th>Note</th><th>Recorded</th></tr>"
+            f"{fb_rows}</table>",
+            "<p style='font-size:12px;color:#5a6478;margin-top:8px'>Feedback is "
+            "recorded after the answer is frozen and never alters the integrity "
+            "digest above.</p></div>",
         ]
 
     html_parts += [

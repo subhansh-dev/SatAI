@@ -510,7 +510,10 @@ def sar_stats(raw: bytes) -> Dict[str, Any]:
     Measured SAR amplitude statistics injected into fusion prompts and the
     audit trace. Judges can verify them; the VLM is told to trust them:
     - speckle_cov        : coefficient of variation (speckle strength)
-    - dynamic_range_db   : p1..p99 amplitude span in dB
+    - p99_p1_spread_db   : p1..p99 span of the log-compressed amplitude,
+                           expressed dB-style as 20*log10(p99/p1) — a spread
+                           descriptor, NOT the true dB dynamic range of raw
+                           backscatter (values are log1p-compressed first)
     - dark_fraction      : share of pixels far below the mean (calm water /
                            smooth surfaces / radar shadow candidates)
     - bright_fraction    : share far above the mean (strong double-bounce:
@@ -533,7 +536,7 @@ def sar_stats(raw: bytes) -> Dict[str, Any]:
         out["speckle_cov"] = round(std / mean, 3)
         p1, p99 = np.percentile(a_log, [1, 99])
         if p1 > 0:
-            out["dynamic_range_db"] = round(
+            out["p99_p1_spread_db"] = round(
                 float(20.0 * math.log10(max(p99, 1e-6) / p1)), 2)
         # distribution-relative thresholds (log space compresses dark values,
         # so a fixed 0.35*mean cutoff misses genuinely dark targets)
