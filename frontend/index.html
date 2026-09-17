@@ -11,7 +11,7 @@
     /* apply the stored theme before first paint (no flash of wrong theme) */
     (function () {
       var t = localStorage.getItem('satai_theme');
-      if (t === 'dark' || (t !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches)) {
+      if (t === 'dark') {
         document.documentElement.classList.add('dark');
       }
     })();
@@ -93,6 +93,17 @@
             </div>
             <div class="history-list" id="historyList">
                 <div class="dim pad8">No queries yet.</div>
+            </div>
+        </section>
+
+        <section class="side-section">
+            <div class="side-title-row">
+                <h3 class="side-title">Conversations</h3>
+                <button class="mini-btn" id="newConvBtn" type="button" title="New conversation"
+                        onclick="newConversation()">+</button>
+            </div>
+            <div class="history-list" id="conversationList">
+                <div class="dim pad8">No conversations.</div>
             </div>
         </section>
 

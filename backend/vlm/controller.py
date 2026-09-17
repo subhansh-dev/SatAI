@@ -1,13 +1,16 @@
 """
 SatAI — Agentic Controller
-Implements the PS-mandated orchestration loop:
+Implements the PS-mandated orchestration loop (9 runtime steps in execute()):
 
-  1. Interpret the query  -> classify the task (VLM judge + rule-based fallback)
+  1. Multi-turn conversation setup -> resolve/create thread, append context
   2. Check input images   -> number / modality / format / metadata / compatibility
-  3. Select models+tools  -> from the specialist registry (predefined)
-  4. Execute workflow     -> configuring ONLY permitted parameters
-  5. Combine outputs      -> text + spatial evidence, confidence estimation
-  6. Auditable summary    -> execution trace, visual evidence, GeoJSON, reports
+  3. Interpret the query  -> classify the task (VLM judge + rule-based fallback)
+  4. Prepare VLM views    -> decode, band-pick, SAR stretch, pair-norm, downscale
+  5. Agentic plan         -> decompose compound queries, select tools from registry
+  6. Execute workflow     -> model routing + parallel tools, ONLY permitted params
+  7. Combine outputs      -> text + spatial evidence, weighted confidence estimation
+  8. Visual + change evidence -> grounding boxes, change map, side-by-side composites
+  9. Auditable summary    -> GeoJSON, execution trace, SHA-256 audit hash, reports
 """
 from __future__ import annotations
 
@@ -20,6 +23,8 @@ import time
 from collections import OrderedDict
 from typing import Any, Dict, List, Optional, Tuple
 
+from .schemas import ConversationMessage
+
 from core import config
 from .image_utils import (
     decode_b64, prepare_for_vlm, prepare_pair_for_vlm, sar_stats,
@@ -30,6 +35,7 @@ from .schemas import (
     VisualEvidenceItem, VLMResponse, QuerySummary,
 )
 from .tool_registry import TASK_LABELS, TASK_TOOLS, registry, select_model
+from .capability_gate import HEURISTIC_CONF_NOTE, post_check, pre_check
 from .vlm_client import VLMClient, VLMError
 from .visual_evidence import (
     input_view_b64, render_change_map, render_grounding, side_by_side_b64,
@@ -55,6 +61,7 @@ _CLASSIFY_SYSTEM = (
     "bi_change — two dates, open-ended 'what changed'\n"
     "bi_change_vqa — two dates plus a specific question about the change\n"
     "cross_modal — optical + SAR pair used together\n"
+    "spectral_index — single multispectral image, NDVI/NDWI/NDBI band-math\n"
     "compound — the request mixes several of the above"
 )
 
@@ -117,10 +124,90 @@ class QueryStore:
         return out
 
 
+class ConversationStore:
+    """In-memory multi-turn conversation store with TTL-based expiry."""
+
+    def __init__(self, max_conversations: int = 100, ttl_seconds: int = 3600,
+                 max_messages: int = 20):
+        self._max = max_conversations
+        self._ttl = ttl_seconds
+        self._max_messages = max_messages
+        self._conversations: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
+
+    def _evict_expired(self) -> None:
+        now = time.time()
+        expired = [cid for cid, c in self._conversations.items()
+                   if now - c["last_active"] > self._ttl]
+        for cid in expired:
+            del self._conversations[cid]
+
+    def get(self, conversation_id: str) -> Optional[Dict[str, Any]]:
+        self._evict_expired()
+        conv = self._conversations.get(conversation_id)
+        if conv is None:
+            return None
+        conv["last_active"] = time.time()
+        self._conversations.move_to_end(conversation_id)
+        return conv
+
+    def create(self) -> Dict[str, Any]:
+        self._evict_expired()
+        cid = f"conv_{int(time.time() * 1000)}_{hashlib.md5(str(time.time()).encode()).hexdigest()[:6]}"
+        conv = {
+            "conversation_id": cid,
+            "messages": [],
+            "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "last_active": time.time(),
+            "metadata": {},
+        }
+        self._conversations[cid] = conv
+        while len(self._conversations) > self._max:
+            self._conversations.popitem(last=False)
+        return conv
+
+    def add_message(self, conversation_id: str, role: str, content: str,
+                    query_id: Optional[str] = None,
+                    metadata: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
+        conv = self.get(conversation_id)
+        if conv is None:
+            return None
+        msg = ConversationMessage(
+            role=role, content=content, query_id=query_id,
+            metadata=metadata or {},
+        )
+        conv["messages"].append(msg.model_dump())
+        if len(conv["messages"]) > self._max_messages:
+            conv["messages"] = conv["messages"][-self._max_messages:]
+        conv["last_active"] = time.time()
+        return conv
+
+    def list(self) -> List[Dict[str, Any]]:
+        self._evict_expired()
+        out = []
+        for conv in reversed(self._conversations.values()):
+            msgs = conv.get("messages", [])
+            out.append({
+                "conversation_id": conv["conversation_id"],
+                "created_at": conv["created_at"],
+                "message_count": len(msgs),
+                "last_query": msgs[-1]["content"][:100] if msgs else "",
+            })
+        return out
+
+    def get_context(self, conversation_id: str,
+                    max_turns: int = 6) -> List[Dict[str, str]]:
+        conv = self.get(conversation_id)
+        if conv is None:
+            return []
+        msgs = conv.get("messages", [])[-max_turns * 2:]
+        return [{"role": m["role"], "content": m["content"]} for m in msgs]
+
+
 class Controller:
     def __init__(self):
         self.vlm = VLMClient()
         self.store = QueryStore(config.QUERY_STORE_SIZE)
+        self.conversations = ConversationStore()
         self._register_tools()
 
     def _register_tools(self) -> None:
@@ -135,11 +222,25 @@ class Controller:
     # ------------------------------------------------------------ pipeline
     async def execute(self, query: str, images: List[ImageInput],
                       mode: str = "auto",
-                      metadata: Optional[Dict[str, Any]] = None) -> VLMResponse:
+                      metadata: Optional[Dict[str, Any]] = None,
+                      conversation_id: Optional[str] = None) -> VLMResponse:
         t_start = time.time()
         metadata = dict(metadata or {})
         notes: List[str] = []
         ts = {"received": time.strftime("%Y-%m-%dT%H:%M:%SZ")}
+
+        # ---- Multi-turn conversation handling -----------------------------
+        conv = None
+        if conversation_id:
+            conv = self.conversations.get(conversation_id)
+        if conv is None:
+            conv = self.conversations.create()
+            conversation_id = conv["conversation_id"]
+        self.conversations.add_message(conversation_id, "user", query,
+                                       metadata={"images": len(images), "mode": mode})
+        conv_context = self.conversations.get_context(conversation_id)
+        notes.append(f"Conversation {conversation_id} — "
+                     f"{len(conv_context)} prior message(s) in context.")
 
         # ---- Step 1: input validation (PS: compatibility checking) --------
         # CPU-bound raster probing runs off the event loop (one huge TIFF
@@ -162,6 +263,15 @@ class Controller:
             task_type, class_reason, class_conf = await self.classify(
                 query, validation, mode)
         ts["classified"] = time.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        # ---- Step 2b: capability gate — refuse infeasible tasks with repair
+        # advice instead of manufacturing an answer (never guess blind) -----
+        gate_ok, repair = pre_check(task_type, validation, metadata)
+        if not gate_ok:
+            return self._reject(query, mode, validation, [repair or
+                                 "Request refused by capability gate."],
+                                t_start, ts,
+                                reason="capability gate refusal")
 
         # ---- Step 4: prepare VLM-ready views of every image ----------------
         pair_task = task_type in ("bi_change", "bi_change_vqa") or \
@@ -298,6 +408,11 @@ class Controller:
         final_text = self._assemble_response(task_type, tool_outputs, query)
         confidence = self._overall_confidence(tool_outputs)
 
+        # ---- Step 6b: capability gate (post) — disagreement / failure
+        # warnings join the audit trail; confidence stays honest -----------
+        notes.extend(post_check(tool_outputs))
+        notes.append(HEURISTIC_CONF_NOTE)
+
         # ---- Step 7: change analysis (single computation, reused) ----------
         change_info = None
         if task_type in ("bi_change", "bi_change_vqa", "compound") \
@@ -351,6 +466,7 @@ class Controller:
             trace=trace,
             report_url=f"/vlm/report/{trace.query_id}",
             execution_time_ms=total_ms,
+            conversation_id=conversation_id,
         )
         # verbatim query + normalisation notes travel INSIDE the trace so the
         # API response, the in-memory store and the downloadable report carry
@@ -361,6 +477,10 @@ class Controller:
         payload["audit_hash"] = self._audit_hash(payload)
         resp.audit_hash = payload["audit_hash"]
         self.store.put(payload)
+        self.conversations.add_message(
+            conversation_id, "assistant", final_text,
+            query_id=trace.query_id,
+            metadata={"task_type": task_type, "confidence": confidence})
         return resp
 
     @staticmethod
@@ -438,6 +558,11 @@ class Controller:
         if n >= 2:
             # compound = change question that ALSO asks to describe/locate/count
             if has_change and sum((has_desc, has_count, has_ground)) >= 1:
+                return "compound"
+            # multi-clause request spanning tools (e.g. "describe X and count Y")
+            # even without explicit change keywords -> agentic decomposition
+            if self._is_multi_intent(q) and sum(
+                    (has_desc, has_count, has_ground, has_change)) >= 2:
                 return "compound"
             return "bi_change_vqa" if self._is_specific(q) else "bi_change"
         if has_count:
@@ -767,11 +892,12 @@ class Controller:
     # ------------------------------------------------------------ reject
     def _reject(self, query: str, mode: str, validation: ValidationReport,
                 errors: List[str], t_start: float,
-                ts: Dict[str, str]) -> VLMResponse:
+                ts: Dict[str, str],
+                reason: str = "input validation failed") -> VLMResponse:
         total_ms = round((time.time() - t_start) * 1000, 2)
         trace = ExecutionTrace(
             mode_requested=mode, task_type="rejected",
-            classification_reason="input validation failed",
+            classification_reason=reason,
             tools_selected=[], tools_invoked=[],
             validation=validation, model=self.vlm.active_model,
             vlm_mode=self.vlm.mode, timestamps=ts,
@@ -779,8 +905,10 @@ class Controller:
             notes=errors)
         resp = VLMResponse(
             query_id=trace.query_id, status="rejected",
-            response="Input rejected by compatibility check:\n- "
-                     + "\n- ".join(errors),
+            response=("Input rejected by compatibility check:\n- "
+                      if reason == "input validation failed" else
+                      "Request refused — evidence insufficient:\n- ")
+                      + "\n- ".join(errors),
             task_type="rejected", confidence=0.0,
             validation=validation, trace=trace,
             report_url=f"/vlm/report/{trace.query_id}",

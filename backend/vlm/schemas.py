@@ -32,6 +32,7 @@ class TaskType(str, Enum):
     BI_CHANGE_VQA = "bi_change_vqa"
     CROSS_MODAL = "cross_modal"
     COMPOUND = "compound"
+    SPECTRAL_INDEX = "spectral_index"
 
 
 class Modality(str, Enum):
@@ -67,6 +68,26 @@ class VLMQuery(BaseModel):
     metadata: Dict[str, Any] = Field(
         default_factory=dict,
         description="Optional context: lat, lon, dates, output_format, region hints")
+    conversation_id: Optional[str] = Field(
+        None, description="Conversation ID for multi-turn context")
+
+
+class ConversationMessage(BaseModel):
+    role: str = Field(description="user or assistant")
+    content: str
+    query_id: Optional[str] = None
+    timestamp: str = Field(default_factory=lambda: time.strftime("%Y-%m-%dT%H:%M:%SZ"))
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class ConversationCreate(BaseModel):
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class ConversationHistory(BaseModel):
+    conversation_id: str
+    created_at: str
+    messages: List[ConversationMessage] = Field(default_factory=list)
 
 
 class CaptionRequest(BaseModel):
@@ -149,10 +170,10 @@ class ToolOutput(BaseModel):
 
 
 class VisualEvidenceItem(BaseModel):
-    kind: str                                    # annotated_boxes | change_map | side_by_side | input_view
+    kind: str                                    # annotated_boxes | change_map | side_by_side | input_view | index_map
     title: str
     image_base64: str
-    mime_type: str = "image/png"
+    mime_type: str = "image/jpeg"
     description: Optional[str] = None
     stats: Optional[Dict[str, Any]] = None
 
@@ -202,6 +223,8 @@ class VLMResponse(BaseModel):
     execution_time_ms: float = 0.0
     audit_hash: Optional[str] = None             # SHA-256 integrity digest
     feedback: List[Dict[str, Any]] = Field(default_factory=list)  # analyst reviews
+    conversation_id: Optional[str] = Field(
+        None, description="Conversation thread ID for multi-turn")
 
 
 class VLMStatus(BaseModel):

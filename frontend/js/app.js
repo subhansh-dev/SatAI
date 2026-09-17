@@ -26,7 +26,9 @@ const state = {
   images: [],          // {b64, name, modality, format, width, height, size}
   mode: 'auto',
   busy: false,
-  responses: new Map() // query_id -> full response JSON (this session)
+  responses: new Map(), // query_id -> full response JSON (this session)
+  conversationId: null, // current conversation thread
+  conversations: [],    // list of conversation threads
 };
 
 const $ = id => document.getElementById(id);
@@ -41,6 +43,7 @@ document.addEventListener('DOMContentLoaded', () => {
   attachEvidenceNavigation();
   refreshStatus();
   refreshHistory();
+  refreshConversations();
   setInterval(refreshStatus, 60000);
 });
 
@@ -66,6 +69,69 @@ function renderTools(tools) {
   el.innerHTML = tools.length
     ? tools.map(t => `<span class="tool-chip" title="${esc(t.description || t.ps_requirement || '')}">${esc(t.id || t.tool_id)}</span>`).join('')
     : '<span class="dim pad8">registry unavailable</span>';
+}
+
+/* ================================================================ CONVERSATIONS */
+async function newConversation() {
+  try {
+    const r = await fetch(`${API}/vlm/conversations`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}' });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const conv = await r.json();
+    state.conversationId = conv.conversation_id;
+    chat.innerHTML = '';
+    hideWelcome();
+    addSystemMsg(`New conversation started: ${conv.conversation_id.slice(0, 12)}...`);
+    refreshConversations();
+  } catch (e) { toast(`Could not start conversation: ${e.message}`); }
+}
+
+async function refreshConversations() {
+  try {
+    const r = await fetch(`${API}/vlm/conversations`);
+    const d = await r.json();
+    state.conversations = d.conversations || [];
+    renderConversationList();
+  } catch { /* offline */ }
+}
+
+function renderConversationList() {
+  const el = $('conversationList');
+  if (!el) return;
+  el.innerHTML = state.conversations.length
+    ? state.conversations.map(c => `
+        <div class="history-item ${c.conversation_id === state.conversationId ? 'active-conv' : ''}"
+             data-cid="${esc(c.conversation_id)}">
+          <div class="h-q">${esc(c.last_query || '(empty)')}</div>
+          <div class="h-meta">
+            <span class="h-task">${c.message_count} msgs</span>
+            <span>${(c.created_at || '').replace('T', ' ').slice(0, 16)}</span>
+          </div>
+        </div>`).join('')
+    : '<div class="dim pad8">No conversations.</div>';
+  el.querySelectorAll('.history-item').forEach(item =>
+    item.addEventListener('click', () => switchConversation(item.dataset.cid)));
+}
+
+async function switchConversation(cid) {
+  state.conversationId = cid;
+  chat.innerHTML = '';
+  addSystemMsg(`Switched to conversation ${cid.slice(0, 12)}...`);
+  try {
+    const r = await fetch(`${API}/vlm/conversations/${cid}`);
+    const conv = await r.json();
+    const msgs = conv.messages || [];
+    for (const m of msgs) {
+      if (m.role === 'user') addUserMsg(m.content);
+      else if (m.role === 'assistant') {
+        if (m.query_id) {
+          const resp = state.responses.get(m.query_id);
+          if (resp) { addAIMsg(resp, 0); continue; }
+        }
+        addSystemMsg(m.content);
+      }
+    }
+  } catch (e) { toast(`Could not load conversation: ${e.message}`); }
+  renderConversationList();
 }
 
 /* ================================================================ UPLOAD */
@@ -177,7 +243,8 @@ async function send() {
       modality: im.detected_modality === 'sar' ? 'sar'
         : im.detected_modality === 'optical' ? 'optical' : null
     })),
-    mode: state.mode
+    mode: state.mode,
+    conversation_id: state.conversationId,
   };
 
   const t0 = performance.now();
@@ -190,6 +257,10 @@ async function send() {
     const data = await r.json();
     if (!r.ok) throw new Error(data.detail || `HTTP ${r.status}`);
     state.responses.set(data.query_id, data);
+    if (data.conversation_id) {
+      state.conversationId = data.conversation_id;
+      refreshConversations();
+    }
     addAIMsg(data, performance.now() - t0);
     refreshHistory();
   } catch (err) {

@@ -18,8 +18,8 @@ from .controller import Controller, get_controller
 from .input_validator import validate_inputs
 from .report import render_html_report, render_json_report
 from .schemas import (
-    CaptionRequest, ChangeRequest, FeedbackRequest, GroundRequest,
-    SARFusionRequest, VLMQuery, VLMStatus,
+    CaptionRequest, ChangeRequest, ConversationCreate, ConversationHistory,
+    FeedbackRequest, GroundRequest, SARFusionRequest, VLMQuery, VLMStatus,
 )
 from .image_utils import decode_b64, sniff_format, load_pil, detect_modality
 
@@ -71,7 +71,8 @@ async def vlm_query(query: VLMQuery) -> dict:
     ctrl = await get_controller()
     result = await ctrl.execute(
         query=query.query, images=query.images,
-        mode=query.mode.value, metadata=query.metadata)
+        mode=query.mode.value, metadata=query.metadata,
+        conversation_id=query.conversation_id)
     return result.model_dump()
 
 
@@ -264,3 +265,42 @@ async def report_download(query_id: str, format: str = "html"):
     return Response(body, media_type="text/html", headers={
         "Content-Disposition":
             f'attachment; filename="satai_report_{query_id[:8]}.html"'})
+
+
+# ---------------------------------------------------------------------------
+# Multi-turn conversations
+# ---------------------------------------------------------------------------
+@router.post("/conversations")
+async def create_conversation(req: ConversationCreate = None) -> dict:
+    """Create a new conversation thread."""
+    ctrl = await get_controller()
+    conv = ctrl.conversations.create()
+    return conv
+
+
+@router.get("/conversations")
+async def list_conversations() -> dict:
+    """List active conversation threads."""
+    ctrl = await get_controller()
+    return {"conversations": ctrl.conversations.list()}
+
+
+@router.get("/conversations/{conversation_id}")
+async def get_conversation(conversation_id: str) -> dict:
+    """Get a conversation's full message history."""
+    ctrl = await get_controller()
+    conv = ctrl.conversations.get(conversation_id)
+    if conv is None:
+        raise HTTPException(404, "Conversation not found or expired")
+    return conv
+
+
+@router.delete("/conversations/{conversation_id}")
+async def delete_conversation(conversation_id: str) -> dict:
+    """Delete a conversation thread."""
+    ctrl = await get_controller()
+    conv = ctrl.conversations.get(conversation_id)
+    if conv is None:
+        raise HTTPException(404, "Conversation not found")
+    ctrl.conversations._conversations.pop(conversation_id, None)
+    return {"ok": True, "conversation_id": conversation_id}
