@@ -25,6 +25,7 @@ from fastapi.staticfiles import StaticFiles
 
 from core import config
 from vlm.routes import router as vlm_router
+from vlm.satellite_routes import router as satellite_router
 from vlm.tool_registry import registry
 
 logging.basicConfig(
@@ -44,12 +45,30 @@ app.add_middleware(
     allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
 )
 app.include_router(vlm_router)
+app.include_router(satellite_router)   # GEE Sentinel fetch endpoints (was defined but never mounted)
 
 # ---------------------------------------------------------------------------
 # Static frontend
 # ---------------------------------------------------------------------------
 FRONTEND_DIR = Path(__file__).resolve().parent.parent.parent / "frontend"
 app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
+
+# bundled demo scenes (samples/*.tiff + samples.json) served for the UI's
+# one-click sample loader
+SAMPLES_DIR = Path(__file__).resolve().parent.parent.parent / "samples"
+if SAMPLES_DIR.exists():
+    app.mount("/samples", StaticFiles(directory=str(SAMPLES_DIR)), name="samples")
+
+
+# ---------------------------------------------------------------------------
+# Render free-tier keep-alive (never sleep in front of a judge)
+# ---------------------------------------------------------------------------
+from api.keepalive import start_keepalive  # noqa: E402
+
+
+@app.on_event("startup")
+async def _start_keepalive() -> None:
+    start_keepalive()
 
 
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)

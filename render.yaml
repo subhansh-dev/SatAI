@@ -18,3 +18,7 @@ services:
         sync: false          # set in the Render dashboard — never commit
       - key: SATAI_PORT
         value: "8500"
+      # Ping our own /api/health every 10 min so the free instance never
+      # sleeps in front of a judge (503 on first request = cold boot).
+      - key: SATAI_KEEPALIVE
+        value: "1"

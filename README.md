@@ -32,6 +32,33 @@ Inputs: single optical/multispectral/SAR image · registered optical+SAR pair ·
 bi-temporal pair. **GeoTIFF/TIFF are first-class** (georeference is carried into
 the GeoJSON output); PNG/JPEG accepted for public benchmark data.
 
+### What's new (Sept 2026 — demo-readiness pass)
+
+- **Georeferenced map view** — grounding boxes and changed-region polygons are
+  now rendered on an interactive Leaflet map ("show on map" in the answer),
+  with theme-aware tiles, per-feature popups and auto-fit bounds. Requires
+  only a public tile CDN; degrades gracefully offline.
+- **True PDF reports** — every query exports a paginated PDF audit report
+  (`↓ pdf`, `?format=pdf`) with validation tables, the execution summary,
+  embedded evidence images and the integrity digest. Graceful 501 if
+  `reportlab` is absent from the deployment.
+- **One-click demo scenes** — `samples/` ships seeded, sensor-plausible
+  bundled imagery (SAR flood basin, 4-band multispectral agri GeoTIFF,
+  bi-temporal urban-growth pair — all with real GeoTIFF geo-tags). The
+  welcome screen gains sample cards + disaster-response presets (flood
+  mapping, crop health/NDVI, urban growth, cloud-piercing optical+SAR).
+- **Render keep-alive** — a lightweight self-ping daemon
+  (`SATAI_KEEPALIVE=1`, Render's `RENDER_EXTERNAL_URL`) prevents free-tier
+  sleep, so a judge never meets a cold 503.
+- **GEE fetch routes mounted** — `/vlm/fetch-sentinel2`, `/vlm/fetch-sentinel1`,
+  `/vlm/fetch-bitemporal`, `/vlm/fetch-crossmodal` were implemented but never
+  wired into the app; they are live now.
+- **Agentic-controller hardening** — fixed a crash where every *successfully
+  decomposed* compound query died with a `NameError` when the trace was
+  assembled (the decomposition path now records its tool plan correctly, with
+  a regression test); the "no separable clauses" fallback is now audited in
+  the trace notes.
+
 ### What's new (Sept 2026 — transparency & experience pass)
 
 - **Chain of evidence** — every answer ships with numbered, inspectable
@@ -182,7 +209,7 @@ python -m backend.vlm.eval.eval_cdvqa                    # change-VQA accuracy
 
 ```bash
 pip install pytest pytest-asyncio
-python -m pytest tests/          # 64 tests — full agentic loop on a mock VLM
+python -m pytest tests/          # 76 tests — full agentic loop on a mock VLM
 ```
 
 Covers the orchestration loop, validation, tools, GeoTIFF handling, spectral
@@ -203,7 +230,7 @@ level, what it connects to — is documented in [`docs/`](docs/README.md):
 | [13 Image processing](docs/13-image-processing.md) | [14 VLM client](docs/14-vlm-client.md) | [15 LoRA fine-tuning](docs/15-lora-finetuning.md) |
 | [16 Eval harness](docs/16-eval-harness.md) | [17 Transparency & audit](docs/17-transparency-auditability.md) | [18 Frontend & UI](docs/18-frontend-ui.md) |
 | [19 API reference](docs/19-api-reference.md) | [20 Configuration](docs/20-configuration.md) | [21 Testing](docs/21-testing.md) |
-| [22 Deployment](docs/22-deployment.md) | | |
+| [22 Deployment](docs/22-deployment.md) | [23 No-GPU Colab/Kaggle plan](docs/23-colab-kaggle-no-gpu-plan.md) | |
 
 ## 🔌 API
 
@@ -214,7 +241,9 @@ level, what it connects to — is documented in [`docs/`](docs/README.md):
 | `POST /vlm/upload` | image probe: format, dims, bands, modality, GeoTIFF metadata |
 | `POST /vlm/validate` | dry-run of the compatibility checker |
 | `POST /vlm/feedback` | analyst review (👍/👎 + note) appended to the audit record |
-| `GET /vlm/status` · `/vlm/history` · `/vlm/report/{id}` | status, audit history, HTML/JSON reports |
+| `GET /vlm/samples` · `/samples/*` | bundled demo scenes index + scene files |
+| `POST /vlm/fetch-sentinel2` `/fetch-sentinel1` `/fetch-bitemporal` `/fetch-crossmodal` | Google Earth Engine scene fetch |
+| `GET /vlm/status` · `/vlm/history` · `/vlm/report/{id}` | status, audit history, HTML/JSON/PDF reports (`?format=`) |
 | `GET /api/health` | liveness + VLM readiness |
 
 ## 📁 Repository layout
@@ -233,10 +262,11 @@ backend/
     report.py            auditable HTML/JSON reports
     tools/               vqa · numeric · caption · ground · change · sar_fusion · spectral_index
     eval/                VRSBench / RSVQA / CDVQA harnesses + metrics
-frontend/                vanilla-JS SPA (chat, evidence gallery, trace drawer, dark mode)
+frontend/                vanilla-JS SPA (chat, evidence gallery, trace drawer, map view, dark mode)
 docs/                    22 deep-dive engineering documents (see table above)
-scripts/                 dataset downloader + multimodal LoRA trainer
-tests/                   64-test suite (mock VLM, no network needed)
+scripts/                 dataset downloader + multimodal LoRA trainer + sample-scene generator
+samples/                 bundled demo scenes (GeoTIFF/TIFF, geo-tagged) + index
+tests/                   76-test suite (mock VLM, no network needed)
 ```
 
 ## 🔒 Security notes

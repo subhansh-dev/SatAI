@@ -6,6 +6,8 @@
     <title>SatQuery AI · ISRO — Department of Space | SIH 2026</title>
     <meta name="description" content="Interactive Vision-Language Assistant for Multimodal Remote Sensing Image Analysis — ISRO / Department of Space, Smart India Hackathon 2026 (PS 26167)">
     <link rel="icon" type="image/svg+xml" href="/static/assets/isro_logo.svg">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+          integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
     <link rel="stylesheet" href="/static/css/style.css">
     <script>
     /* apply the stored theme before first paint (no flash of wrong theme) */
@@ -129,13 +131,14 @@
                     and pose a query in natural language. The controller validates inputs, classifies the task, routes it to
                     specialist tools from the registry, and returns an answer with visual evidence, a confidence estimate and
                     a downloadable audit report.</p>
+                <div class="sample-row" id="sampleRow" hidden></div>
                 <div class="examples" id="examples">
-                    <button class="chip" data-q="Describe the land cover and the main objects visible in this image." data-mode="single">Describe scene &amp; main objects</button>
-                    <button class="chip" data-q="Highlight the water bodies I asked about with bounding boxes." data-mode="single">Highlight water bodies</button>
-                    <button class="chip" data-q="What changed between these two dates, and where?" data-mode="bitemporal">What changed between two dates?</button>
-                    <button class="chip" data-q="Using the optical and SAR pair, identify built-up areas and water bodies." data-mode="crossmodal">Optical + SAR: built-up vs water</button>
-                    <button class="chip" data-q="How many ships are in this image?" data-mode="single">Count objects</button>
-                    <button class="chip" data-q="Has the built-up area increased, decreased or stayed the same between the two dates?" data-mode="bitemporal">Built-up: increased or decreased?</button>
+                    <button class="chip" data-q="Map the flood extent in this SAR scene: which regions are inundated and which structures remain above water?" data-mode="single">🛟 Map flood extent (SAR)</button>
+                    <button class="chip" data-q="Assess crop health: compute the vegetation index and flag fields with poor vegetation vigour." data-mode="single">🌱 Crop health (NDVI)</button>
+                    <button class="chip" data-q="Has the built-up area increased, decreased or stayed the same between these two dates? Where is the new construction?" data-mode="bitemporal">🏗️ Urban growth between dates</button>
+                    <button class="chip" data-q="Using the optical and SAR pair, identify water bodies and built-up areas — use the radar to see through the clouds." data-mode="crossmodal">🌧️ Cloud-piercing optical + SAR</button>
+                    <button class="chip" data-q="Highlight the water bodies referred to in the query with bounding boxes." data-mode="single">📍 Locate water bodies</button>
+                    <button class="chip" data-q="How many ships are in this image?" data-mode="single">🚢 Count vessels</button>
                 </div>
             </div>
         </div>
@@ -214,6 +217,8 @@
 
 <div class="toast" id="toast" hidden></div>
 
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 <script src="/static/js/app.js"></script>
 </body>
 </html>

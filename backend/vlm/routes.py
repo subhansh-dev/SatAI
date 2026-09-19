@@ -261,6 +261,26 @@ async def report_download(query_id: str, format: str = "html"):
         return Response(body, media_type="application/json", headers={
             "Content-Disposition":
                 f'attachment; filename="satai_report_{query_id[:8]}.json"'})
+    if format == "pdf":
+        try:
+            from .pdf_report import render_pdf_report
+        except ImportError:
+            raise HTTPException(
+                501, "PDF export unavailable — the 'reportlab' package is "
+                     "not installed on this deployment. JSON/HTML export "
+                     "remains available.")
+        try:
+            pdf_bytes = await asyncio.to_thread(render_pdf_report, stored)
+        except ImportError:
+            raise HTTPException(
+                501, "PDF export unavailable — the 'reportlab' package is "
+                     "not installed on this deployment. JSON/HTML export "
+                     "remains available.")
+        except Exception as e:
+            raise HTTPException(500, f"PDF rendering failed: {e}")
+        return Response(pdf_bytes, media_type="application/pdf", headers={
+            "Content-Disposition":
+                f'attachment; filename="satai_report_{query_id[:8]}.pdf"'})
     body = render_html_report(stored)
     return Response(body, media_type="text/html", headers={
         "Content-Disposition":

@@ -231,6 +231,22 @@ class TestAgenticFlows:
         assert resp.task_type == "compound"
         assert set(resp.trace.tools_invoked) >= {"change_desc", "vqa", "caption"}
 
+    async def test_compound_decomposition_success_path(self, controller):
+        """Regression: a compound query that DOES decompose used to crash with
+        a NameError (tool_ids unbound) when building the execution trace."""
+        a = make_png(128, 128)
+        b = make_png(128, 128, (200, 200, 200))
+        resp = await controller.execute(
+            "What changed between these two dates; also how much area changed?",
+            [img(a), img(b)])
+        assert resp.task_type == "compound"
+        assert resp.status == "ok"
+        # decomposition produced a real multi-tool plan recorded in the trace
+        assert len(resp.trace.tools_selected) >= 2
+        assert resp.trace.tools_invoked == resp.trace.tools_selected or set(
+            resp.trace.tools_invoked) <= set(resp.trace.tools_selected)
+        assert any("decomposed" in n for n in resp.trace.notes)
+
 
 # ===========================================================================
 # Evidence + reports

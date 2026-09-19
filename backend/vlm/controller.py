@@ -302,11 +302,13 @@ class Controller:
 
         # ---- Step 5: agentic plan — decompose compound queries -------------
         plan: List[Tuple[str, str]] = []          # (sub_query, tool_id)
+        tool_ids: List[str] = []                  # registry selection for the trace
         if task_type == "compound":
             plan = self._decompose(query, len(vlm_images))
             if plan:
+                tool_ids = [tid for _sq, tid in plan]   # decomposed plan
                 notes.append("Query decomposed into "
-                             f"{len({p[1] for p in plan})} specialist "
+                             f"{len(set(tool_ids))} specialist "
                              f"step(s) across {len(plan)} sub-question(s).")
         if not plan:
             tool_ids = registry.select(task_type, len(vlm_images))
@@ -317,6 +319,8 @@ class Controller:
                 # compound bundle instead of nothing
                 tool_ids = (["change_desc", "vqa", "caption"]
                             if len(vlm_images) >= 2 else ["caption", "vqa"])
+                notes.append("No separable clauses — running the standard "
+                             "compound tool bundle.")
             plan = [(query, tid) for tid in tool_ids]
         # drop tools whose image requirement cannot be met (previously the
         # pipeline crashed silently through and the VLM was asked about

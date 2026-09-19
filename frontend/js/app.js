@@ -44,6 +44,7 @@ document.addEventListener('DOMContentLoaded', () => {
   refreshStatus();
   refreshHistory();
   refreshConversations();
+  loadSamples();
   setInterval(refreshStatus, 60000);
 });
 
@@ -132,6 +133,59 @@ async function switchConversation(cid) {
     }
   } catch (e) { toast(`Could not load conversation: ${e.message}`); }
   renderConversationList();
+}
+
+/* ================================================================ SAMPLES */
+let SAMPLES = [];
+
+async function loadSamples() {
+  try {
+    const r = await fetch(`${API}/vlm/samples`);
+    const d = await r.json();
+    SAMPLES = d.samples || [];
+    if (SAMPLES.length) renderSampleRow();
+  } catch { /* backend offline — chips still work without samples */ }
+}
+
+function renderSampleRow() {
+  const host = $('sampleRow');
+  if (!host) return;
+  host.hidden = false;
+  host.innerHTML = SAMPLES.map((s, i) => `
+    <button class="sample-card" data-si="${i}" type="button"
+            title="${esc(s.note || '')}">
+      <img src="data:image/jpeg;base64,${s.preview_b64}" alt="">
+      <span class="sample-name">${esc(s.title)}</span>
+      <span class="sample-mode">${esc(s.mode)}</span>
+    </button>`).join('');
+  host.querySelectorAll('.sample-card').forEach(btn =>
+    btn.addEventListener('click', () => useSample(+btn.dataset.si)));
+}
+
+async function useSample(i) {
+  const s = SAMPLES[i];
+  if (!s || state.busy) return;
+  hideWelcome();
+  addSystemMsg(`Loading demo scene: ${s.title}…`);
+  try {
+    const files = s.files || [s.file];
+    state.images = [];
+    for (const fname of files) {
+      const r = await fetch(`${API}/samples/${encodeURIComponent(fname)}`);
+      if (!r.ok) throw new Error(`scene file ${fname}: HTTP ${r.status}`);
+      const blob = await r.blob();
+      const file = new File([blob], fname, { type: blob.type || 'image/tiff' });
+      // reuse the normal upload probe so modality/preview metadata match
+      const fd = new FormData(); fd.append('file', file);
+      const pr = await fetch(`${API}/vlm/upload`, { method: 'POST', body: fd });
+      if (!pr.ok) throw new Error((await pr.json().catch(() => ({}))).detail || `HTTP ${pr.status}`);
+      state.images.push(await pr.json());
+    }
+    renderPreview();
+    $('queryInput').value = s.query || '';
+    if (s.mode) { state.mode = s.mode; $('modeSelect').value = s.mode; }
+    toast(`Scene loaded — press Send to run the ${s.mode} analysis`);
+  } catch (e) { toast(`Could not load sample: ${e.message}`); }
 }
 
 /* ================================================================ UPLOAD */
@@ -341,6 +395,7 @@ function addAIMsg(data, clientMs) {
           <span>${(data.execution_time_ms || 0).toFixed(0)} ms</span>
           <button class="meta-link" onclick="openTrace('${data.query_id}')">execution trace</button>
           <button class="meta-link" onclick="openReport('${data.query_id}','html')">report</button>
+          <button class="meta-link" onclick="downloadReport('${data.query_id}','pdf')">↓ pdf</button>
           <button class="meta-link" onclick="downloadReport('${data.query_id}','html')">↓ html</button>
           <button class="meta-link" onclick="downloadReport('${data.query_id}','json')">↓ json</button>
           ${!rejected ? `
@@ -494,17 +549,102 @@ function renderGeoJSON(gj) {
   const json = JSON.stringify(gj, null, 2);
   const id = 'gj' + Math.random().toString(36).slice(2, 8);
   window['_' + id] = json;
+  const wgs = isWGS84(gj);
   return `
     <div class="geojson-block">
       <div class="geojson-head">
         <span>GeoJSON · ${gj.features?.length || 0} feature(s) · ${esc(gj.crs || '')}</span>
         <span>
+          ${wgs ? `<button class="meta-link" onclick="showMap('${id}')">show on map</button>` : ''}
           <button class="meta-link" onclick="copyText(window._${id})">copy</button>
           <button class="meta-link" onclick="downloadGeoJSON(window._${id})">↓ .geojson</button>
         </span>
       </div>
+      ${wgs ? `<div class="geojson-map" id="map_${id}" hidden></div>` : ''}
       <pre class="geojson-body" id="${id}">${esc(json)}</pre>
     </div>`;
+}
+
+/* ---------------- georeferenced map view (Leaflet) ---------------- */
+function isWGS84(gj) {
+  // true when every feature ring is plausibly lon/lat (RFC 7946)
+  const feats = gj.features || [];
+  if (!feats.length) return false;
+  const okCoord = ([lon, lat]) =>
+    Number.isFinite(lon) && Number.isFinite(lat) && Math.abs(lat) <= 90 && (Math.abs(lon) <= 180);
+  return feats.every(f => (f.geometry?.coordinates?.[0] || []).every(okCoord));
+}
+
+const _maps = new Map();                     // mapElId -> L.map
+
+function showMap(id) {
+  const el = $('map_' + id);
+  if (!el) return;
+  el.hidden = !el.hidden;
+  if (!el.hidden) {
+    if (!_maps.has(id)) buildMap(id, el);
+    else _maps.get(id).invalidateSize();
+    if (!el.hidden) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+}
+
+function buildMap(id, el) {
+  if (typeof L === 'undefined') {            // offline / CDN blocked
+    el.innerHTML = '<div class="dim pad8">Map tiles unavailable offline — GeoJSON export still works.</div>';
+    return;
+  }
+  const dark = document.documentElement.classList.contains('dark');
+  const tiles = dark
+    ? L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        maxZoom: 19, subdomains: 'abcd',
+        attribution: '&copy; OpenStreetMap &copy; CARTO'})
+    : L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+        maxZoom: 19, subdomains: 'abcd',
+        attribution: '&copy; OpenStreetMap &copy; CARTO'});
+  const map = L.map(el, { scrollWheelZoom: true });
+  tiles.addTo(map);
+  _maps.set(id, map);
+
+  let gj;
+  try { gj = JSON.parse(window['_' + id]); } catch { return; }
+  const layer = L.geoJSON(gj, {
+    style: f => ({
+      color: '#e86a10', weight: 2, opacity: 0.9,
+      fillColor: '#e86a10', fillOpacity: 0.12
+    }),
+    onEachFeature: (f, lyr) => {
+      const p = f.properties || {};
+      const rows = Object.entries(p)
+        .filter(([, v]) => v !== null && v !== '')
+        .map(([k, v]) => `<div><b>${esc(k)}</b>: ${esc(String(v))}</div>`).join('');
+      if (rows) lyr.bindPopup(`<div class="map-pop">${rows}</div>`);
+    },
+    pointToLayer: (f, latlng) =>
+      L.circleMarker(latlng, { radius: 6, color: '#e86a10', fillOpacity: 0.5 })
+  }).addTo(map);
+
+  try { map.fitBounds(layer.getBounds(), { padding: [24, 24] }); }
+  catch { map.setView([20.59, 78.96], 4); }   // India fallback
+
+  // re-render on theme flip so tiles match the UI
+  document.dispatchEvent(new CustomEvent('satai-map-theme'));
+}
+
+// theme toggle re-creates tile layers on existing maps
+function _remapTheme() {
+  const dark = document.documentElement.classList.contains('dark');
+  _maps.forEach(map => {
+    let tiles;
+    if (dark) {
+      tiles = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        maxZoom: 19, subdomains: 'abcd', attribution: '&copy; OpenStreetMap &copy; CARTO'});
+    } else {
+      tiles = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+        maxZoom: 19, subdomains: 'abcd', attribution: '&copy; OpenStreetMap &copy; CARTO'});
+    }
+    map.eachLayer(l => { if (l instanceof L.TileLayer) map.removeLayer(l); });
+    tiles.addTo(map);
+  });
 }
 
 function addSystemMsg(text, isErr = false) {
@@ -742,6 +882,7 @@ function attachThemeToggle() {
     const root = document.documentElement;
     const dark = root.classList.toggle('dark');
     localStorage.setItem('satai_theme', dark ? 'dark' : 'light');
+    if (typeof _remapTheme === 'function') _remapTheme();   // map tiles follow the theme
     toast(dark ? 'Dark theme — mission-control night mode'
                : 'Light theme — daylight mode');
   });
