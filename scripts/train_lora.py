@@ -390,9 +390,13 @@ class VLMCollator:
             enc_full = self._encode(msgs, imgs, add_gen_prompt=False)
             enc_prompt = self._encode(msgs[:-1], imgs, add_gen_prompt=True)
 
-            ids = enc_full["input_ids"][0]
-            n_prompt = enc_prompt["input_ids"].shape[1]
-            if n_prompt >= ids.shape[1]:      # degenerate — supervise all
+            _full_ids = enc_full["input_ids"]
+            _pr_ids = enc_prompt["input_ids"]
+            # processor may return 1D or 2D — normalize to 1D
+            ids = _full_ids[0] if _full_ids.dim() == 2 else _full_ids.view(-1)
+            _pr = _pr_ids[0] if _pr_ids.dim() == 2 else _pr_ids.view(-1)
+            n_prompt = int(_pr.shape[0])
+            if n_prompt >= int(ids.shape[0]):  # degenerate — supervise all
                 n_prompt = 0
             lab = ids.clone()
             lab[:n_prompt] = -100
