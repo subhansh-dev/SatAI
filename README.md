@@ -205,6 +205,26 @@ python -m backend.vlm.eval.eval_rsvqa                    # VQA accuracy by type
 python -m backend.vlm.eval.eval_cdvqa                    # change-VQA accuracy
 ```
 
+### 📈 Measured baseline (zero-shot, n=100)
+
+Setup: `Qwen2.5-VL-7B-Instruct-AWQ` served locally via **vLLM on a Kaggle T4**,
+zero-shot on a held-out VRSBench slice — no RS adaptation yet.
+
+| Benchmark | Metric | Base (Qwen2.5-VL-7B) | Fine-tuned (LoRA r=64) |
+|---|---|---|---|
+| VRSBench VQA (n=100) | accuracy | **33%** | training in progress |
+| VRSBench caption (n=100) | BLEU-1 / CIDEr | 0.076 / 0.0003* | training in progress |
+| VRSBench grounding | Acc@0.5 | pending | pending |
+
+The 33% zero-shot accuracy is the point, not a shortcoming: the PS premise is
+that **a generic VLM fails on remote-sensing imagery** — this is that failure,
+measured. The same base + LoRA (r=64) fine-tune on RS data is training now;
+the before/after delta table will replace this section when the run completes.
+
+\* literal n-gram overlap vs reference captions — BLEU/CIDEr are sensitive to
+phrasing and style, not only correctness; interpreted alongside the VQA and
+grounding numbers.
+
 ## 🧪 Tests
 
 ```bash
