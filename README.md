@@ -90,9 +90,8 @@ the GeoJSON output); PNG/JPEG accepted for public benchmark data.
 
 - **Agentic depth** — compound queries are *decomposed* into sub-questions and
   routed to specialist tools which run **in parallel**; the **model registry**
-  routes tasks between the cloud flagship and the locally-served RS-LoRA
-  weights (`tool_registry.select_model`), with the decision recorded in the
-  audit trace.
+  routes tasks between the locally-served base model and the RS-LoRA adapter
+  (`tool_registry.select_model`), with the decision recorded in the audit trace.
 - **Calibrated confidence** — counting queries use *self-consistency sampling*
   (modal answer of n samples + agreement bonus); the `CONFIDENCE` protocol now
   parses decimal self-reports correctly (`0.85` used to parse as `0.0`).
@@ -127,7 +126,7 @@ the GeoJSON output); PNG/JPEG accepted for public benchmark data.
 pip install -r requirements.txt
 
 # 1. configure
-cp .env.example .env         # add OPENROUTER_API_KEY (cloud dev mode)
+cp .env.example .env         # local vLLM is the primary path (see Modes)
 
 # 2. run
 python run.py                # → http://localhost:8500
@@ -137,11 +136,11 @@ python run.py                # → http://localhost:8500
 
 | Mode | When | How |
 |------|------|-----|
-| `VLM_MODE=cloud` | development, demos | Any OpenRouter vision model (`CLOUD_MODEL`) |
-| `VLM_MODE=local` | ISRO finals / air-gapped | vLLM serving the RS-adapted weights — `vllm serve --config vllm_config.yaml` |
+| `VLM_MODE=local` | **primary** — ISRO finals / air-gapped | vLLM serving the RS-adapted weights — `vllm serve --config vllm_config.yaml` |
+| `VLM_MODE=cloud` | optional dev convenience | any OpenAI-compatible vision endpoint (`CLOUD_MODEL`) |
 
 Both paths speak the OpenAI vision wire format (images as `image_url` content
-parts — works with vLLM and OpenRouter alike). Deploying on Render is
+parts). Deploying on Render is
 `render.yaml` out of the box; the frontend is also a pure-static folder for
 Vercel (`?api=https://your-backend` to point at a remote backend).
 
@@ -298,7 +297,7 @@ backend/
     tool_registry.py     predefined task→tool mapping + param allowlists
     input_validator.py   PS compatibility checker
     image_utils.py       GeoTIFF/multi-band/SAR handling, pair normalisation
-    vlm_client.py        cloud (OpenRouter) ⇄ local (vLLM) client
+    vlm_client.py        VLM client — local vLLM (base ⇄ RS-LoRA adapter)
     visual_evidence.py   annotated boxes, change map, side-by-side renders
     report.py            auditable HTML/JSON reports
     tools/               vqa · numeric · caption · ground · change · sar_fusion · spectral_index
