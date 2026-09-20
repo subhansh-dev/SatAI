@@ -63,7 +63,7 @@ if SAMPLES_DIR.exists():
 # ---------------------------------------------------------------------------
 # Render free-tier keep-alive (never sleep in front of a judge)
 # ---------------------------------------------------------------------------
-from api.keepalive import start_keepalive  # noqa: E402
+from api.keepalive import get_status as keepalive_status, start_keepalive  # noqa: E402
 
 
 @app.on_event("startup")
@@ -131,6 +131,7 @@ async def health() -> dict:
         "vlm_model": ctrl.vlm.active_model,
         "vlm_backend_ready": vlm_ok,
         "tool_count": len(registry.tool_ids()),
+        "keepalive": keepalive_status(),
     }
 
 

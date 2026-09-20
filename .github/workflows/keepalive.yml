@@ -1,0 +1,42 @@
+# SatAI — external keep-alive for the Render free-tier demo.
+#
+# Render spins a Free web service down after 15 min without inbound traffic
+# (https://render.com/docs/free). The app also self-pings when
+# SATAI_KEEPALIVE=1 is set — but that env var must be added manually if the
+# service was created from the dashboard instead of render.yaml. This workflow
+# is the env-var-proof backup: GitHub's runner is genuine external traffic.
+#
+# Runs every 5 minutes (Render's idle window is 15 min; GitHub cron can be
+# delayed by a few minutes, so we don't rely on a 10-min interval alone).
+# Public repos get unlimited Actions minutes; each run costs ~5 s of runner
+# time. A non-200 response is a warning, not a failure, so redeploys don't
+# paint the repo red.
+name: keepalive
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch: {}   # allow manual trigger from the Actions tab
+
+permissions:
+  contents: read
+
+concurrency:
+  group: keepalive
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping SatAI health endpoint
+        run: |
+          code=$(curl -sS -o /tmp/health.json -w "%{http_code}" \
+            --max-time 90 \
+            https://satai-ubqk.onrender.com/api/health || true)
+          echo "GET /api/health -> HTTP ${code}"
+          if [ "$code" = "200" ]; then
+            echo "service warm: $(cat /tmp/health.json | head -c 300)"
+          else
+            echo "::warning::health check returned HTTP ${code} (503 = cold boot/redeploy, ignore once)"
+          fi
