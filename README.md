@@ -213,14 +213,26 @@ both arms run through the same eval harness on the same held-out slice (n=100).
 | Eval | Metric | Base (zero-shot) | Fine-tuned (LoRA r=64) |
 |---|---|---|---|
 | VQA (n=100) | accuracy | **33%** | **34%** |
-| Caption (n=100) | BLEU-1 / CIDEr | 0.076 / 0.0003* | pending |
-| Grounding | Acc@0.5 | pending | pending |
+| Caption (n=100) | BLEU-1 / CIDEr | 0.076 / 0.0003* | **0.127 / 0.0016** |
+| Grounding (n=100, corrected GT) | Acc@0.5 / mean IoU | — | 0.0 / 0.008 |
 
 The 33% zero-shot accuracy is the point, not a shortcoming: the PS premise is
 that **a generic VLM fails on remote-sensing imagery** — this is that failure,
 measured. The fine-tuned arm is a **smoke-scale run**: it validates the
 complete adaptation pipeline end-to-end (data prep → QLoRA training → adapter
-export → vLLM serving → benchmark eval) on free cloud hardware.
+export → vLLM serving → benchmark eval) on free cloud hardware — and it
+already moves semantics: **BLEU-1 +66% (0.076 → 0.127)** on held-out captions
+from just 200 training samples.
+
+**Grounding scores 0.0 for the fine-tuned arm even with corrected
+ground-truth boxes (mean IoU 0.008).** The adapter was trained on VQA/caption
+data, not box annotations — adaptation transfers to **semantics, not spatial
+localization**. That is the generic-VLM failure mode in vivo, and precisely
+why SatAI performs grounding **algorithmically** (a dedicated deterministic
+tool over the VLM's open-vocabulary output) instead of trusting a VLM to
+regress pixel coordinates. The VQA per-type breakdown agrees: scene-level
+types score while position / direction / reasoning sit at zero for any
+generic VLM.
 
 **Scope & limitations.** Fine-tuning ran on a free-tier cloud GPU (Kaggle T4)
 under hackathon time limits, on only **200 training samples**, using a
@@ -238,7 +250,7 @@ grounding numbers.
 
 ```bash
 pip install pytest pytest-asyncio
-python -m pytest tests/          # 76 tests — full agentic loop on a mock VLM
+python -m pytest tests/          # 86 tests — full agentic loop on a mock VLM
 ```
 
 Covers the orchestration loop, validation, tools, GeoTIFF handling, spectral
@@ -295,7 +307,7 @@ frontend/                vanilla-JS SPA (chat, evidence gallery, trace drawer, m
 docs/                    22 deep-dive engineering documents (see table above)
 scripts/                 dataset downloader + multimodal LoRA trainer + sample-scene generator
 samples/                 bundled demo scenes (GeoTIFF/TIFF, geo-tagged) + index
-tests/                   76-test suite (mock VLM, no network needed)
+tests/                   86-test suite (mock VLM, no network needed)
 ```
 
 ## 🔒 Security notes
