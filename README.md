@@ -205,21 +205,30 @@ python -m backend.vlm.eval.eval_rsvqa                    # VQA accuracy by type
 python -m backend.vlm.eval.eval_cdvqa                    # change-VQA accuracy
 ```
 
-### 📈 Measured baseline (zero-shot, n=100)
+### 📈 Measured results — baseline vs fine-tuned
 
-Setup: `Qwen2.5-VL-7B-Instruct-AWQ` served locally via **vLLM on a Kaggle T4**,
-zero-shot on a held-out VRSBench slice — no RS adaptation yet.
+Setup: `Qwen2.5-VL-7B-Instruct-AWQ` served locally via **vLLM on a Kaggle T4**;
+both arms run through the same eval harness on the same held-out slice (n=100).
 
-| Benchmark | Metric | Base (Qwen2.5-VL-7B) | Fine-tuned (LoRA r=64) |
+| Eval | Metric | Base (zero-shot) | Fine-tuned (LoRA r=64) |
 |---|---|---|---|
-| VRSBench VQA (n=100) | accuracy | **33%** | training in progress |
-| VRSBench caption (n=100) | BLEU-1 / CIDEr | 0.076 / 0.0003* | training in progress |
-| VRSBench grounding | Acc@0.5 | pending | pending |
+| VQA (n=100) | accuracy | **33%** | **34%** |
+| Caption (n=100) | BLEU-1 / CIDEr | 0.076 / 0.0003* | pending |
+| Grounding | Acc@0.5 | pending | pending |
 
 The 33% zero-shot accuracy is the point, not a shortcoming: the PS premise is
 that **a generic VLM fails on remote-sensing imagery** — this is that failure,
-measured. The same base + LoRA (r=64) fine-tune on RS data is training now;
-the before/after delta table will replace this section when the run completes.
+measured. The fine-tuned arm is a **smoke-scale run**: it validates the
+complete adaptation pipeline end-to-end (data prep → QLoRA training → adapter
+export → vLLM serving → benchmark eval) on free cloud hardware.
+
+**Scope & limitations.** Fine-tuning ran on a free-tier cloud GPU (Kaggle T4)
+under hackathon time limits, on only **200 training samples**, using a
+**7B-parameter VLM**. At that scale measurable accuracy movement is not
+expected — this run proves the plumbing, not the ceiling. Training is
+continuing **now** on a larger sample set (for a bigger delta) and a larger
+backbone; this table will be refreshed with the full before/after numbers
+when those runs complete.
 
 \* literal n-gram overlap vs reference captions — BLEU/CIDEr are sensitive to
 phrasing and style, not only correctness; interpreted alongside the VQA and
