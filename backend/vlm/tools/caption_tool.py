@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
+from ..lang import LANG_HINT
 from .base import BaseTool
 
 SYSTEM = (
@@ -39,6 +40,7 @@ class CaptionTool(BaseTool):
             "edges of scene>\n"
             "SENSOR NOTES: <apparent resolution, sensor type guess "
             "(optical/SAR/multispectral), artifacts, season if inferable>\n"
+            + LANG_HINT + "\n"
             "End with `CONFIDENCE: <0-100>`."
         )
         text, conf, meta = await self.ask(SYSTEM, user, images[:1],

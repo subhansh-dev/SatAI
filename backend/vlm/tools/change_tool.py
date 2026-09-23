@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
+from ..lang import LANG_HINT
 from .base import BaseTool
 
 SYSTEM = (
@@ -53,6 +54,7 @@ class ChangeDescTool(BaseTool):
             "MAGNITUDE: <minor / moderate / major + rough % of scene affected>\n"
             "CONFUSERS: <seasonal, illumination, sensor or registration effects "
             "that could mimic change here>\n"
+            + LANG_HINT + "\n"
             + ("Directly answer the user's specific question in the summary.\n"
                if specific else "")
             + "End with `CONFIDENCE: <0-100>`."

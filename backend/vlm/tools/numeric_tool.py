@@ -10,6 +10,7 @@ from typing import Any, Dict
 
 from core import config
 
+from ..lang import LANG_HINT
 from .base import BaseTool
 
 SYSTEM = (
@@ -40,6 +41,7 @@ class NumericTool(BaseTool):
         user = (
             f"Quantitative remote-sensing question: {query}\n\n"
             "Inspect the image carefully and count/measure methodically. "
+            f"{LANG_HINT} "
             "Reply with a 1-3 sentence justification, then `ANSWER: ...` "
             "and `CONFIDENCE: <0-100>`."
         )

@@ -26,6 +26,7 @@ class InputMode(str, Enum):
 class TaskType(str, Enum):
     SINGLE_VQA = "single_vqa"
     SINGLE_VQA_COUNT = "single_vqa_count"
+    SINGLE_VQA_AREA = "single_vqa_area"
     SINGLE_CAPTION = "single_caption"
     SINGLE_GROUND = "single_ground"
     BI_CHANGE = "bi_change"

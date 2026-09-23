@@ -21,6 +21,7 @@ class Tool(Protocol):
 TASK_TOOLS: Dict[str, List[str]] = {
     "single_vqa":       ["vqa"],
     "single_vqa_count": ["numeric"],
+    "single_vqa_area":  ["quantity"],
     "single_caption":   ["caption"],
     "single_ground":    ["ground"],
     "bi_change":        ["change_desc"],
@@ -34,6 +35,7 @@ TASK_TOOLS: Dict[str, List[str]] = {
 TASK_LABELS: Dict[str, str] = {
     "single_vqa": "Single-image VQA",
     "single_vqa_count": "Single-image VQA (quantitative)",
+    "single_vqa_area": "Area / quantity quantification",
     "single_caption": "Scene captioning",
     "single_ground": "Region grounding",
     "bi_change": "Change description",
@@ -57,8 +59,8 @@ MODEL_REGISTRY: Dict[str, Dict[str, Any]] = {
                      "air-gapped LoRA server is available; flagship otherwise",
     },
     "general": {
-        "scope": ("single_vqa", "single_vqa_count", "single_ground",
-                  "spectral_index", "compound"),
+        "scope": ("single_vqa", "single_vqa_count", "single_vqa_area",
+                  "single_ground", "spectral_index", "compound"),
         "local": "base",         # generic capability, adapter not required
         "cloud": "flagship",
         "rationale": "general visual reasoning uses the strongest available "

@@ -9,6 +9,7 @@ import json
 import re
 from typing import Any, Dict, List, Optional
 
+from ..lang import LANG_HINT
 from .base import BaseTool
 
 SYSTEM = (
@@ -126,7 +127,7 @@ class GroundTool(BaseTool):
             "Localise every region in the attached image that matches the "
             "expression. " + ("Use oriented boxes described as the axis-aligned "
             "bounds of the rotated extent." if obb else "Use axis-aligned boxes.") +
-            " Reply with the JSON array only."
+            f" {LANG_HINT} Reply with the JSON array only."
         )
         text, model_conf, meta = await self.ask(SYSTEM, user, images[:1],
                                                 max_tokens=512, temperature=0.0,

@@ -99,6 +99,10 @@ class MockVLM:
                 break
         if "how many" in query or "count" in query:
             return "single_vqa_count"
+        if ("hectare" in query or "area of" in query
+                or "percentage of the" in query or "\u0939\u0947\u0915\u094d\u091f\u0947\u092f\u0930"
+                in query):
+            return "single_vqa_area"
         if "highlight" in query or "locate" in query:
             return "single_ground"
         if "describe" in query or "caption" in query:

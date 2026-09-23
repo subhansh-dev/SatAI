@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
+from ..lang import LANG_HINT
 from .base import BaseTool
 
 SYSTEM = (
@@ -56,6 +57,7 @@ class SARFusionTool(BaseTool):
             "BUILT-UP AREAS: <where and how confident>\n"
             "WATER-COVERED AREAS: <where and how confident>\n"
             "CAVEATS: <registration, resolution mismatch, speckle, layover>\n"
+            + LANG_HINT + "\n"
             "End with `CONFIDENCE: <0-100>`."
         )
         text, conf, meta = await self.ask(SYSTEM, user, images[:2],

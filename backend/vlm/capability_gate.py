@@ -43,8 +43,8 @@ def pre_check(task_type: str, validation: ValidationReport,
     if task_type not in TASK_LABELS:
         return False, (
             f"Unsupported request '{task_type}'. I handle single-image "
-            "analysis (VQA, counting, captioning, grounding, spectral "
-            "indices), bi-temporal change, optical+SAR fusion, and "
+            "analysis (VQA, counting, area/quantity, captioning, grounding, "
+            "spectral indices), bi-temporal change, optical+SAR fusion, and "
             "multi-part combinations of those. Rephrase into one of these.")
 
     n = len(validation.images)

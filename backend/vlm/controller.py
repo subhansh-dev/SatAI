@@ -30,12 +30,14 @@ from .image_utils import (
     decode_b64, prepare_for_vlm, prepare_pair_for_vlm, sar_stats,
 )
 from .input_validator import validate_inputs
+from .lang import is_non_latin
 from .schemas import (
     ExecutionTrace, ImageInput, Severity, ToolOutput, ValidationReport,
     VisualEvidenceItem, VLMResponse, QuerySummary,
 )
 from .tool_registry import TASK_LABELS, TASK_TOOLS, registry, select_model
 from .capability_gate import HEURISTIC_CONF_NOTE, post_check, pre_check
+from .eval.common import answers_match
 from .vlm_client import VLMClient, VLMError
 from .visual_evidence import (
     input_view_b64, render_change_map, render_grounding, side_by_side_b64,
@@ -47,6 +49,7 @@ from .tools.change_tool import ChangeDescTool
 from .tools.sar_fusion_tool import SARFusionTool
 from .tools.numeric_tool import NumericTool
 from .tools.spectral_tool import SpectralIndexTool
+from .tools.quantity_tool import QuantityTool
 
 logger = logging.getLogger("satai.controller")
 
@@ -56,6 +59,8 @@ _CLASSIFY_SYSTEM = (
     "the task-type string only — no punctuation, no explanation.\n"
     "single_vqa — question about one image\n"
     "single_vqa_count — counting/quantity question about one image\n"
+    "single_vqa_area — area/units question about one image (hectares, km², "
+    "% of scene)\n"
     "single_caption — describe / summarise one image\n"
     "single_ground — find / locate / highlight a referred object in one image\n"
     "bi_change — two dates, open-ended 'what changed'\n"
@@ -80,6 +85,19 @@ _DESCRIBE_RE = re.compile(
 _SPECTRAL_RE = re.compile(
     r"\b(ndvi|ndwi|ndbi|vegetation index|water index|built[- ]?up index)\b",
     re.IGNORECASE)
+# area / physical-units questions -> quantity tool (band-math hectares),
+# checked BEFORE the generic count rule so they never hit VLM self-consistency
+_AREA_RE = re.compile(
+    r"(how much area|what(?:'s| is)? (?:the )?(?:total )?area|"
+    r"area of (?:the|this|these|each)|total area|"
+    r"hectares?|acres?|"
+    r"sq(?:uare)?[ -]?\.?(?:km|kilomet(?:er|re)s?|kilometers?|"
+    r"meters?|metres?)|km²|m²|"
+    r"percentage of the (?:scene|image|tile|frame)|"
+    r"% of the (?:scene|image|tile|frame)|"
+    r"what percentage of the (?:scene|image)|"
+    r"क्षेत्रफल|हेक्टेयर)",
+    re.IGNORECASE)
 
 # clause splitter for compound-query decomposition (PS: agentic planning)
 _SPLIT_RE = re.compile(
@@ -87,6 +105,43 @@ _SPLIT_RE = re.compile(
     r"which|describe|highlight|locate|find|count|identify|estimate|show)|"
     r"\s+and also\s+|\s+also\s+|\s+then\s+|\s+plus\s+",
     re.IGNORECASE)
+
+# ---- blind-test hallucination gate (OmniEarth-style language-shortcut check)
+_BLIND_SYSTEM = (
+    "You are a blind control probe for a satellite-imagery analysis system. "
+    "You are given ONLY the analyst's question — no image whatsoever. If the "
+    "question can be answered from general world knowledge alone, answer it; "
+    "otherwise state clearly that you cannot tell without seeing the imagery. "
+    "End with a final line `CONFIDENCE: <0-100>`."
+)
+_BLIND_TOOLS = {"vqa", "numeric", "quantity", "change_desc"}
+_BLIND_CONF_RE = re.compile(r"CONFIDENCE\s*[:=]\s*[0-9.]+%?", re.IGNORECASE)
+_BLIND_REFUSAL_RE = re.compile(
+    r"\b(cannot|can't|could not|unable|no image|"
+    r"without (?:seeing )?(?:the|an|any) image|"
+    r"not (?:possible|available) without|do not have|don't have|"
+    r"insufficient|cannot tell|can not tell)\b",
+    re.IGNORECASE)
+
+
+def _blind_verdict(primary: str, blind: str) -> str:
+    """Classify the blind probe against the reported answer.
+
+    'flag'    — the blind (imageless) control reproduced the answer
+                (language shortcut / prior knowledge suspected)
+    'refusal' — the control honestly said it cannot answer without the image
+    'pass'    — the control gave a different answer (visual evidence needed)
+    """
+    p, b = (primary or "").strip(), (blind or "").strip()
+    if not p or not b:
+        return "pass"
+    if _BLIND_REFUSAL_RE.search(b):
+        return "refusal"
+    if answers_match(p, b):
+        return "flag"
+    if len(b.split()) <= 6 and b.lower() in p.lower():
+        return "flag"
+    return "pass"
 
 
 class QueryStore:
@@ -218,6 +273,7 @@ class Controller:
         registry.register(ChangeDescTool(self.vlm))
         registry.register(SARFusionTool(self.vlm))
         registry.register(SpectralIndexTool(self.vlm))
+        registry.register(QuantityTool(self.vlm))
 
     # ------------------------------------------------------------ pipeline
     async def execute(self, query: str, images: List[ImageInput],
@@ -263,6 +319,10 @@ class Controller:
             task_type, class_reason, class_conf = await self.classify(
                 query, validation, mode)
         ts["classified"] = time.strftime("%Y-%m-%dT%H:%M:%SZ")
+        if is_non_latin(query):
+            notes.append("Non-Latin script detected — VLM answers will "
+                         "follow the query's language (Hindi, Gujarati, ...); "
+                         "algorithmic outputs stay numeric/English.")
 
         # ---- Step 2b: capability gate — refuse infeasible tasks with repair
         # advice instead of manufacturing an answer (never guess blind) -----
@@ -417,6 +477,14 @@ class Controller:
         notes.extend(post_check(tool_outputs))
         notes.append(HEURISTIC_CONF_NOTE)
 
+        # ---- Step 6c: blind-test hallucination gate -----------------------
+        # same question, NO image: an answer reproducible blind may come from
+        # language priors rather than the imagery -> flagged + dinged --------
+        if metadata.get("blind_test") is not False:
+            mult = await self._blind_test_gate(query, tool_outputs, notes)
+            if mult != 1.0:
+                confidence = round(max(0.05, confidence * mult), 3)
+
         # ---- Step 7: change analysis (single computation, reused) ----------
         change_info = None
         if task_type in ("bi_change", "bi_change_vqa", "compound") \
@@ -434,6 +502,11 @@ class Controller:
         evidence = await asyncio.to_thread(
             self._build_evidence, task_type, tool_outputs, vlm_images,
             validation, change_info)
+
+        # ---- Step 8b: evidence-citation verification + linkage -------------
+        # every EV-n id cited in the answer is checked against the evidence
+        # chain; uncited chains get an explicit [EV-n] footer ---------------
+        final_text = self._link_evidence(final_text, evidence, notes)
 
         # ---- Step 9: GeoJSON for grounding + change regions ----------------
         geojson = self._boxes_to_geojson(tool_outputs, validation, metadata,
@@ -526,7 +599,8 @@ class Controller:
                 return "cross_modal", "modality detection: optical + SAR pair", 0.95
             if rule in ("bi_change", "bi_change_vqa", "compound"):
                 return rule, f"rule-based on 2 images + query pattern", 0.9
-        elif rule in ("single_vqa_count", "single_ground", "single_caption"):
+        elif rule in ("single_vqa_count", "single_vqa_area", "single_ground",
+                      "single_caption"):
             return rule, "high-confidence keyword rule", 0.9
 
         # VLM-as-judge for the ambiguous remainder
@@ -569,6 +643,8 @@ class Controller:
                     (has_desc, has_count, has_ground, has_change)) >= 2:
                 return "compound"
             return "bi_change_vqa" if self._is_specific(q) else "bi_change"
+        if n <= 1 and _AREA_RE.search(q):
+            return "single_vqa_area"
         if has_count:
             return "single_vqa_count"
         if has_ground:
@@ -687,7 +763,8 @@ class Controller:
             if not plan or plan[-1][1] != tid or tid != "vqa":
                 plan.append((clause, tid))
         order = {"caption": 0, "change_desc": 1, "sar_fusion": 1, "vqa": 2,
-                 "numeric": 3, "spectral_index": 4, "ground": 5}
+                 "numeric": 3, "quantity": 3, "spectral_index": 4,
+                 "ground": 5}
         plan.sort(key=lambda p: order.get(p[1], 9))
         return plan
 
@@ -717,6 +794,7 @@ class Controller:
             "vqa": "ANSWER TO YOUR QUESTION",
             "caption": "SCENE DESCRIPTION",
             "numeric": "QUANTITATIVE ANSWER",
+            "quantity": "AREA / QUANTITY",
             "ground": "LOCALISATION",
             "sar_fusion": "OPTICAL + SAR FUSION",
             "spectral_index": "SPECTRAL INDEX",
@@ -766,7 +844,7 @@ class Controller:
                             stats={"boxes": o.bounding_boxes}))
                 spectral = (o.metadata or {}).get("spectral") \
                     if o.metadata else None
-                if o.tool_id == "spectral_index" and spectral \
+                if o.tool_id in ("spectral_index", "quantity") and spectral \
                         and spectral.get("preview_b64"):
                     items.append(VisualEvidenceItem(
                         kind="index_map",
@@ -892,6 +970,95 @@ class Controller:
             },
             "features": features,
         }
+
+    # ------------------------------------------------------------ blind test
+    async def _blind_test_gate(self, query: str, outputs: List[ToolOutput],
+                               notes: List[str]) -> float:
+        """OmniEarth-style blind test: re-ask the question WITHOUT the image.
+        If the reported answer is reproducible blind it may come from
+        language priors rather than the imagery -> flag it and return a
+        confidence multiplier (< 1.0); otherwise return 1.0."""
+        primary = next((o for o in outputs
+                        if o.tool_id in _BLIND_TOOLS and o.text
+                        and o.confidence_source != "error"), None)
+        if primary is None:
+            return 1.0
+        try:
+            blind_raw = await self._run_blind_probe(query)
+        except VLMError as e:
+            notes.append(f"Blind-test skipped (probe backend error: {e}).")
+            return 1.0
+        except Exception:
+            logger.exception("blind-test probe failed")
+            notes.append("Blind-test skipped (probe failed).")
+            return 1.0
+        blind = _BLIND_CONF_RE.sub("", str(blind_raw or "")).strip()
+        verdict = _blind_verdict(primary.text or "", blind)
+        meta = dict(primary.metadata or {})
+        meta["blind_test"] = {"flagged": verdict == "flag",
+                              "verdict": verdict,
+                              "blind_answer": blind[:300]}
+        primary.metadata = meta
+        if verdict == "flag":
+            notes.append(
+                f"Blind-test FLAG: the answer was reproducible without "
+                f"seeing the image (blind control said: \"{blind[:120]}\") — "
+                f"possible language-shortcut/prior-knowledge answer; "
+                f"confidence dinged.")
+            return 0.8
+        if verdict == "refusal":
+            notes.append(
+                "Blind-test passed: the imageless control could not answer — "
+                "the reported answer requires visual evidence.")
+        else:
+            notes.append(
+                "Blind-test passed: the imageless control gave a different "
+                "answer — the reported answer depends on the imagery.")
+        return 1.0
+
+    async def _run_blind_probe(self, query: str) -> str:
+        """One imageless round-trip with the same question (the control)."""
+        data = await self.vlm.query(
+            messages=[{"role": "system", "content": _BLIND_SYSTEM},
+                      {"role": "user", "content": (
+                          f"Question (no image provided): {query}\n"
+                          "Answer only from general knowledge, or state that "
+                          "you cannot tell without seeing the imagery. End "
+                          "with `CONFIDENCE: <0-100>`.")}],
+            max_tokens=256, temperature=0.0)
+        return str((data.get("choices") or [{}])[0].get("message", {})
+                   .get("content", "") or "")
+
+    # ------------------------------------------------------------ evidence links
+    _EV_CITE_RE = re.compile(r"\bEV-(\d+)\b")
+
+    @classmethod
+    def _link_evidence(cls, text: str,
+                       evidence: List[VisualEvidenceItem],
+                       notes: List[str]) -> str:
+        """Programmatic citation check: every EV-n cited in the answer must
+        exist in the evidence chain; answers that cite nothing get an
+        explicit [EV-n] footer so text and visual results stay linked."""
+        if not text:
+            return text
+        ids = [int(m) for m in cls._EV_CITE_RE.findall(text)]
+        if ids:
+            bad = sorted({i for i in ids if i < 1 or i > len(evidence)})
+            if bad:
+                notes.append(
+                    "Evidence citations verified: "
+                    + ", ".join(f"EV-{i}" for i in bad)
+                    + f" do not exist (only {len(evidence)} evidence item(s) "
+                      "present) — treat those references as unverified.")
+            return text
+        if evidence:
+            shown = evidence[:6]
+            footer = ", ".join(f"[EV-{i + 1}] {ev.title}"
+                               for i, ev in enumerate(shown))
+            more = (f" (+{len(evidence) - len(shown)} more)"
+                    if len(evidence) > len(shown) else "")
+            return text + "\n\n**Evidence:** " + footer + more
+        return text
 
     # ------------------------------------------------------------ reject
     def _reject(self, query: str, mode: str, validation: ValidationReport,

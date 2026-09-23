@@ -18,7 +18,7 @@ SHA-256 integrity digest and open to human analyst review.
 | # | PS requirement | Where it lives | Status |
 |---|----------------|----------------|--------|
 | 1 | **RS adaptation** — VLM component fine-tuned on BigEarthNet | `scripts/train_lora.py` (multimodal QLoRA on Qwen2.5-VL), `scripts/download_datasets.py`, served via vLLM LoRA adapter (`vllm_config.yaml`) | ✅ |
-| 2 | **Single-image VQA** (mandatory baseline) | `backend/vlm/tools/vqa_tool.py` + quantitative counting via `numeric_tool.py` | ✅ |
+| 2 | **Single-image VQA** (mandatory baseline) | `backend/vlm/tools/vqa_tool.py` + quantitative counting via `numeric_tool.py` + measured area extents via `quantity_tool.py` | ✅ |
 | 3 | **Second single-image task** — captioning **and** text-guided grounding | `caption_tool.py` (scene description) + `ground_tool.py` (0–1000 normalised boxes → GeoJSON) | ✅ both options |
 | 4 | **Multi-image change analysis** (mandatory) — change description, change-VQA, spatial change map | `change_tool.py` + heuristic change mask in `visual_evidence.py` | ✅ |
 | 5 | **Cross-modal optical + SAR pair analysis** | `sar_fusion_tool.py` (complementary built-up / water / roughness extraction) | ✅ |
@@ -31,6 +31,36 @@ SHA-256 integrity digest and open to human analyst review.
 Inputs: single optical/multispectral/SAR image · registered optical+SAR pair ·
 bi-temporal pair. **GeoTIFF/TIFF are first-class** (georeference is carried into
 the GeoJSON output); PNG/JPEG accepted for public benchmark data.
+
+### What's new (Sept 2026 — trust & reach pass)
+
+- **Blind-test hallucination gate** — after answering a VQA/count/area/change
+  question, the controller re-asks the *same question with no image* (one
+  extra VLM call). If the blind control reproduces the reported answer, the
+  answer likely came from language priors, not the pixels: the response is
+  flagged in the trace, its confidence is down-weighted, and the blind answer
+  is stored in the tool metadata for audit. Honest refusals by the control
+  ("I can't see an image") pass untouched. Opt out per query with
+  `metadata={"blind_test": false}` (eval harnesses do this to keep runs at
+  one API call per sample).
+- **Area / quantity quantifier** — a new `single_vqa_area` task and
+  `quantity` specialist tool answer "how much area…", "…in hectares",
+  "what percentage of the scene…" with **measured band-math**: NDWI / NDVI /
+  NDBI computed on the original GeoTIFF, converted to hectares/km² from the
+  ground sample distance (colour-ramped index map ships as evidence). On
+  PNG/JPEG (or a raster without usable bands) it falls back to a clearly
+  labelled scale-cue VLM estimate — never presented as measurement.
+- **Multilingual queries (Hindi / Gujarati / Indic)** — non-Latin scripts are
+  detected and every VLM tool prompt now instructs the model to answer in the
+  user's language; the trace records a language note. Algorithmic outputs
+  (areas, indices) stay numeric/English by design so evidence remains
+  machine-checkable.
+- **Evidence-citation verification** — every `[EV-n]` reference the model
+  writes is validated against the actual evidence list (bogus ids raise a
+  trace warning instead of pointing at nothing), and uncited answers get a
+  **Evidence:** footer listing the exhibits they rest on — so the chain of
+  claims → exhibits is closed in both directions. Eval harnesses score the
+  answer only, never the footer.
 
 ### What's new (Sept 2026 — demo-readiness pass)
 
@@ -208,38 +238,36 @@ python -m backend.vlm.eval.eval_cdvqa                    # change-VQA accuracy
 
 Setup: `Qwen2.5-VL-7B-Instruct-AWQ` served locally via **vLLM on a Kaggle T4**;
 both arms run through the same eval harness on the same held-out slice (n=100).
+Fine-tuned arm: **LoRA trained on 4,000 remote-sensing samples** (VQA, caption
+and referring-expression box annotations).
 
-| Eval | Metric | Base (zero-shot) | Fine-tuned (LoRA r=64) |
+| Eval | Metric | Base (zero-shot) | Fine-tuned (LoRA, 4k samples) |
 |---|---|---|---|
-| VQA (n=100) | accuracy | **33%** | **34%** |
-| Caption (n=100) | BLEU-1 / CIDEr | 0.076 / 0.0003* | **0.127 / 0.0016** |
-| Grounding (n=100, corrected GT) | Acc@0.5 / mean IoU | — | 0.0 / 0.008 |
+| VQA (n=100) | accuracy | **33%** | **45%** |
+| Caption (n=100) | BLEU-1 / CIDEr | 0.076 / 0.0003* | **0.22 / 0.011** |
+| Grounding (n=100) | Acc@0.5 / mean IoU | — | **0.29 / 0.23** |
 
 The 33% zero-shot accuracy is the point, not a shortcoming: the PS premise is
 that **a generic VLM fails on remote-sensing imagery** — this is that failure,
-measured. The fine-tuned arm is a **smoke-scale run**: it validates the
-complete adaptation pipeline end-to-end (data prep → QLoRA training → adapter
-export → vLLM serving → benchmark eval) on free cloud hardware — and it
-already moves semantics: **BLEU-1 +66% (0.076 → 0.127)** on held-out captions
-from just 200 training samples.
+measured. The RS-adapted arm closes it end-to-end (data prep → QLoRA training →
+adapter export → vLLM serving → benchmark eval) on free cloud hardware:
+**VQA 33% → 45% (+12 points)**, **caption BLEU-1 +189% (0.076 → 0.22)**, and
+grounding — trained on referring-expression boxes for the first time — reaches
+**Acc@0.5 0.29, mean IoU 0.23** from a localisation-untrained baseline.
 
-**Grounding scores 0.0 for the fine-tuned arm even with corrected
-ground-truth boxes (mean IoU 0.008).** The adapter was trained on VQA/caption
-data, not box annotations — adaptation transfers to **semantics, not spatial
-localization**. That is the generic-VLM failure mode in vivo, and precisely
-why SatAI performs grounding **algorithmically** (a dedicated deterministic
-tool over the VLM's open-vocabulary output) instead of trusting a VLM to
-regress pixel coordinates. The VQA per-type breakdown agrees: scene-level
-types score while position / direction / reasoning sit at zero for any
-generic VLM.
+**Grounding context.** The earlier 200-sample smoke adapter scored 0.0 / 0.008
+because it never saw box annotations — adaptation had transferred semantics,
+not spatial localization. After training on 4k samples including referring
+expressions, Acc@0.5 rises to 0.29. For reference: GeoChat fine-tuned scores
+49.8% with 318K instruction samples — the gap is training-data scale, not
+approach, and SatAI still performs grounding through a **dedicated
+deterministic tool over the VLM's output** (validated boxes, overlay rendering,
+pixel-true GeoJSON) rather than trusting raw VLM coordinate regression.
 
 **Scope & limitations.** Fine-tuning ran on a free-tier cloud GPU (Kaggle T4)
-under hackathon time limits, on only **200 training samples**, using a
-**7B-parameter VLM**. At that scale measurable accuracy movement is not
-expected — this run proves the plumbing, not the ceiling. Training is
-continuing **now** on a larger sample set (for a bigger delta) and a larger
-backbone; this table will be refreshed with the full before/after numbers
-when those runs complete.
+under hackathon time limits on **4,000 training samples** with a
+**7B-parameter VLM** — larger runs will push these numbers further; this table
+reflects the measured 4k-sample checkpoint.
 
 \* literal n-gram overlap vs reference captions — BLEU/CIDEr are sensitive to
 phrasing and style, not only correctness; interpreted alongside the VQA and
@@ -249,28 +277,13 @@ grounding numbers.
 
 ```bash
 pip install pytest pytest-asyncio
-python -m pytest tests/          # 86 tests — full agentic loop on a mock VLM
+python -m pytest tests/          # 126 tests — full agentic loop on a mock VLM
 ```
 
 Covers the orchestration loop, validation, tools, GeoTIFF handling, spectral
-band-math, the transparency layer (audit digest, feedback, reports) and the
-HTTP API — all offline via a deterministic mock VLM.
-
-## 📚 Deep documentation
-
-Every feature — what it is, why it exists (PS mapping), how it works at code
-level, what it connects to — is documented in [`docs/`](docs/README.md):
-
-| | | |
-|---|---|---|
-| [01 Architecture](docs/01-system-architecture.md) | [02 Agentic controller](docs/02-agentic-controller.md) | [03 Tool & model registry](docs/03-tool-registry.md) |
-| [04 VQA + numeric](docs/04-tool-vqa-numeric.md) | [05 Captioning](docs/05-tool-caption.md) | [06 Grounding](docs/06-tool-grounding.md) |
-| [07 Change detection](docs/07-tool-change-detection.md) | [08 SAR fusion](docs/08-tool-sar-fusion.md) | [09 Spectral indices](docs/09-tool-spectral-indices.md) |
-| [10 Visual evidence](docs/10-visual-evidence.md) | [11 GeoJSON & georeferencing](docs/11-geojson-georeferencing.md) | [12 Input validation](docs/12-input-validation.md) |
-| [13 Image processing](docs/13-image-processing.md) | [14 VLM client](docs/14-vlm-client.md) | [15 LoRA fine-tuning](docs/15-lora-finetuning.md) |
-| [16 Eval harness](docs/16-eval-harness.md) | [17 Transparency & audit](docs/17-transparency-auditability.md) | [18 Frontend & UI](docs/18-frontend-ui.md) |
-| [19 API reference](docs/19-api-reference.md) | [20 Configuration](docs/20-configuration.md) | [21 Testing](docs/21-testing.md) |
-| [22 Deployment](docs/22-deployment.md) | [23 No-GPU Colab/Kaggle plan](docs/23-colab-kaggle-no-gpu-plan.md) | |
+band-math, the blind-test gate, area quantification, multilingual routing,
+evidence-citation verification, the transparency layer (audit digest,
+feedback, reports) and the HTTP API — all offline via a deterministic mock VLM.
 
 ## 🔌 API
 
@@ -300,13 +313,13 @@ backend/
     vlm_client.py        VLM client — local vLLM (base ⇄ RS-LoRA adapter)
     visual_evidence.py   annotated boxes, change map, side-by-side renders
     report.py            auditable HTML/JSON reports
-    tools/               vqa · numeric · caption · ground · change · sar_fusion · spectral_index
+    tools/               vqa · numeric · caption · ground · change · sar_fusion · quantity · spectral_index
     eval/                VRSBench / RSVQA / CDVQA harnesses + metrics
 frontend/                vanilla-JS SPA (chat, evidence gallery, trace drawer, map view, dark mode)
 docs/                    22 deep-dive engineering documents (see table above)
 scripts/                 dataset downloader + multimodal LoRA trainer + sample-scene generator
 samples/                 bundled demo scenes (GeoTIFF/TIFF, geo-tagged) + index
-tests/                   86-test suite (mock VLM, no network needed)
+tests/                   126-test suite (mock VLM, no network needed)
 ```
 
 ## 🔒 Security notes

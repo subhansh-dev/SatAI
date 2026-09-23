@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
+from ..lang import LANG_HINT
 from .base import BaseTool
 
 SYSTEM = (
@@ -32,7 +33,8 @@ class VQATool(BaseTool):
             f"Remote-sensing image analysis task.\n"
             f"User question: {query}\n\n"
             "Answer the question about the attached image. Use precise "
-            "remote-sensing vocabulary. End with `CONFIDENCE: <0-100>`."
+            "remote-sensing vocabulary. " + LANG_HINT + " End with "
+            "`CONFIDENCE: <0-100>`."
         )
         text, conf, meta = await self.ask(SYSTEM, user, images[:1],
                                           max_tokens=768, model=model)

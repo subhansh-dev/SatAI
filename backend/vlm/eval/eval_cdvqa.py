@@ -55,8 +55,11 @@ class CDVQAEvaluator:
             query = sample.get("question", "What changed between these two dates?")
             gt = sample.get("answer", "")
             result = await self.controller.execute(
-                query=query, images=imgs, mode="bitemporal")
-            ok = answers_match(result.response, gt)
+                query=query, images=imgs, mode="bitemporal",
+                metadata={"blind_test": False})
+            # score the ANSWER only — never the [EV-n] evidence footer
+            pred = result.response.split("\n\n**Evidence:**")[0]
+            ok = answers_match(pred, gt)
             correct += ok
             total += 1
             qtype = sample.get("question_type", "change")

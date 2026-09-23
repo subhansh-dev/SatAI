@@ -59,8 +59,10 @@ class VRSEvaluator:
                 continue
             result = await self.controller.execute(
                 query="Describe this satellite image in detail.",
-                images=imgs, mode="single")
-            preds.append(result.response)
+                images=imgs, mode="single",
+                metadata={"blind_test": False})
+            # metrics must see the caption, never the [EV-n] evidence footer
+            preds.append(result.response.split("\n\n**Evidence:**")[0])
             gt = sample.get("caption") or sample.get("answer") or ""
             gts.append([gt] if isinstance(gt, str) else list(gt))
             if (i + 1) % 25 == 0:
@@ -81,7 +83,8 @@ class VRSEvaluator:
                 "Locate the referred object with a bounding box."
             result = await self.controller.execute(
                 query=query, images=imgs, mode="single",
-                metadata={"force_task": "single_ground"})
+                metadata={"force_task": "single_ground",
+                          "blind_test": False})
 
             w = h = None
             if result.validation and result.validation.images:
@@ -121,8 +124,11 @@ class VRSEvaluator:
             query = sample.get("query") or sample.get("question") or ""
             gt = sample.get("answer", "")
             result = await self.controller.execute(
-                query=query, images=imgs, mode="single")
-            ok = answers_match(result.response, gt)
+                query=query, images=imgs, mode="single",
+                metadata={"blind_test": False})
+            # score the ANSWER only — never the [EV-n] evidence footer
+            pred = result.response.split("\n\n**Evidence:**")[0]
+            ok = answers_match(pred, gt)
             correct += ok
             total += 1
             qtype = sample.get("question_type", "unknown")
