@@ -19,7 +19,7 @@ import re
 from typing import Any, Dict, List, Optional
 
 from ..image_utils import spectral_index
-from ..lang import LANG_HINT
+from ..lang import language_hint
 from .base import BaseTool
 from .numeric_tool import SYSTEM as COUNT_SYSTEM
 
@@ -197,7 +197,7 @@ class QuantityTool(BaseTool):
             f"Quantitative remote-sensing question: {query}\n\n"
             "No multispectral raster is attached, so estimate from scale "
             "cues in the image (if any) and state your assumptions. "
-            f"{LANG_HINT}\n"
+            f"{language_hint(query)}\n"
             "Reply with a 1-3 sentence justification, then `ANSWER: ...` "
             "and `CONFIDENCE: <0-100>`."
         )
